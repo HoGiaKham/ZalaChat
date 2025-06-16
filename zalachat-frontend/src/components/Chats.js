@@ -211,7 +211,7 @@ function Chats({ themes }) {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
 socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
   auth: { token: tokens.accessToken },
-  transports: ["websocket"],
+  transports: ["polling", "websocket"],
       });
 
       socketRef.current.on("connect", () => {
