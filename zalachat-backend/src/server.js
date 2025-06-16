@@ -15,7 +15,28 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 
 const app = express();
-const server = http.createServer(app);
+const server = require("http").createServer(app);
+
+// ⚠️ Cần đặt trước khi dùng
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://zala-chat-ygt9.vercel.app",
+  "https://zala-chat-ygt9-git-main-ho-gia-khams-projects.vercel.app"
+];
+
+// ✅ CORS middleware cho REST API
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
+// ✅ Cấu hình WebSocket CORS (Socket.IO)
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
@@ -32,26 +53,11 @@ const io = new Server(server, {
 
 global.io = io;
 
+// ✅ AWS Cognito
 const cognitoISP = new AWS.CognitoIdentityServiceProvider({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://zala-chat-ygt9.vercel.app",
-  "https://zala-chat-ygt9-git-main-ho-gia-khams-projects.vercel.app"
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true
-}));
 
 
 app.use(express.json());
