@@ -32,7 +32,8 @@ const cognitoISP = new AWS.CognitoIdentityServiceProvider({
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://zala-chat-ygt9.vercel.app"
+  "https://zala-chat-ygt9.vercel.app",
+  "https://zala-chat-ygt9-git-main-ho-gia-khams-projects.vercel.app"
 ];
 
 app.use(cors({
@@ -45,6 +46,7 @@ app.use(cors({
   },
   credentials: true
 }));
+
 
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
