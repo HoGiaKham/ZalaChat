@@ -54,6 +54,8 @@ function Groups() {
   const myVideoRef = useRef(null);
   const peerVideoRefs = useRef({});
   const hoverTimeoutRef = useRef(null);
+  const [showMemberInfoModal, setShowMemberInfoModal] = useState(false);
+
   const themes = {
     light: {
       chatBackground: "#f0f2f5",
