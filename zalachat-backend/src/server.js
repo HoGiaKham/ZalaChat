@@ -30,10 +30,22 @@ const cognitoISP = new AWS.CognitoIdentityServiceProvider({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://zala-chat-ygt9.vercel.app"
+];
+
 app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true,
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
 }));
+
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
 
