@@ -209,9 +209,9 @@ function Chats({ themes }) {
   useEffect(() => {
     if (currentUser) {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
-      socketRef.current = io("http://localhost:5000", {
-        auth: { token: tokens.accessToken },
-        transports: ["websocket"],
+socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+  auth: { token: tokens.accessToken },
+  transports: ["websocket"],
       });
 
       socketRef.current.on("connect", () => {
