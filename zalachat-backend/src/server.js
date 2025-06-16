@@ -15,7 +15,8 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 
 const app = express();
-const server = require("http").createServer(app);
+const server = http.createServer(app);
+
 
 // ⚠️ Cần đặt trước khi dùng
 const allowedOrigins = [
