@@ -322,27 +322,26 @@ function Chats({ themes }) {
         localStorage.setItem(`theme_${data.conversationId}`, data.newTheme);
       });
 
-      socketRef.current.on("nicknameChanged", (data) => {
-        console.log("Nickname changed event received:", data); // Debug log
-        setConversations((prev) => {
-          const updatedConvs = prev.map((conv) =>
-            conv.conversationId === data.conversationId
-              ? { ...conv, friendName: data.newNickname }
-              : conv
-          );
-          return updatedConvs; // Chỉ cập nhật, không cần sắp xếp lại
-        });
-        if (
-          selectedConversation &&
-          selectedConversation.conversationId === data.conversationId
-        ) {
-          setSelectedConversation((prev) => ({
-            ...prev,
-            friendName: data.newNickname,
-          }));
-        }
-        localStorage.setItem(`nickname_${data.conversationId}`, data.newNickname);
-      });
+socketRef.current.on("nicknameChanged", ({ conversationId, newNickname }) => {
+  console.log("Nickname changed event received:", { conversationId, newNickname }); // Debug log
+  setConversations((prev) =>
+    prev.map((conv) =>
+      conv.conversationId === conversationId
+        ? { ...conv, friendName: newNickname }
+        : conv
+    )
+  );
+  if (
+    selectedConversation &&
+    selectedConversation.conversationId === conversationId
+  ) {
+    setSelectedConversation((prev) => ({
+      ...prev,
+      friendName: newNickname,
+    }));
+  }
+  localStorage.setItem(`nickname_${conversationId}`, newNickname);
+});
 
       socketRef.current.on("callRequest", (data) => {
         if (
