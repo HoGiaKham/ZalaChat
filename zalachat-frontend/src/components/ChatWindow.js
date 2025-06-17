@@ -662,38 +662,45 @@ const handleSetNickname = () => {
     toast.error("Biệt hiệu không được để trống!");
     return;
   }
-  localStorage.setItem(`nickname_${selectedConversation.conversationId}`, nickname);
+
   socketRef.current.emit("nicknameChanged", {
     conversationId: selectedConversation.conversationId,
     newNickname: nickname,
-  });
-  setSelectedConversation((prev) => ({
-    ...prev,
-    friendName: nickname,
-  }));
-  setShowNicknameModal(false);
-  setNickname("");
+  }, (response) => {
+    if (response?.success) {
+      localStorage.setItem(`nickname_${selectedConversation.conversationId}`, nickname);
+      setSelectedConversation((prev) => ({
+        ...prev,
+        friendName: nickname,
+      }));
+      setShowNicknameModal(false);
+      setNickname("");
 
-  const systemMessage = {
-    conversationId: selectedConversation.conversationId,
-    senderId: currentUser,
-    receiverId: selectedConversation.friendId,
-    content: `Bạn đã đổi biệt hiệu của ${profile?.name || selectedConversation.friendName} thành ${nickname}`,
-    type: "system",
-    timestamp: new Date().toISOString(),
-    status: "sent",
-  };
-  socketRef.current.emit("sendMessage", systemMessage, (response) => {
-    if (response?.error) {
-      toast.error(response.error);
-      setMessages((prev) =>
-        prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
-      );
+      const systemMessage = {
+        conversationId: selectedConversation.conversationId,
+        senderId: currentUser,
+        receiverId: selectedConversation.friendId,
+        content: `Bạn đã đổi biệt hiệu của ${profile?.name || selectedConversation.friendName} thành ${nickname}`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+        status: "sent",
+      };
+      socketRef.current.emit("sendMessage", systemMessage, (msgResponse) => {
+        if (msgResponse?.error) {
+          toast.error(msgResponse.error);
+          setMessages((prev) =>
+            prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
+          );
+        } else {
+          setMessages((prev) => [...prev, systemMessage]);
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+      });
+      setShowSettingsModal(true);
+    } else {
+      toast.error(response?.error || "Đổi biệt hiệu thất bại!");
     }
   });
-  setMessages((prev) => [...prev, systemMessage]);
-  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  setShowSettingsModal(true); // Only one call
 };
 
   const handleShowSearchBar = () => {

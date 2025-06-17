@@ -323,24 +323,28 @@ function Chats({ themes }) {
       });
 
 socketRef.current.on("nicknameChanged", ({ conversationId, newNickname }) => {
-  console.log("Nickname changed event received:", { conversationId, newNickname }); // Debug log
-  setConversations((prev) =>
-    prev.map((conv) =>
-      conv.conversationId === conversationId
-        ? { ...conv, friendName: newNickname }
-        : conv
-    )
-  );
-  if (
-    selectedConversation &&
-    selectedConversation.conversationId === conversationId
-  ) {
-    setSelectedConversation((prev) => ({
-      ...prev,
-      friendName: newNickname,
-    }));
+  console.log("Nickname changed event received:", { conversationId, newNickname });
+  if (conversationId && newNickname) {
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.conversationId === conversationId
+          ? { ...conv, friendName: newNickname }
+          : conv
+      )
+    );
+    if (
+      selectedConversation &&
+      selectedConversation.conversationId === conversationId
+    ) {
+      setSelectedConversation((prev) => ({
+        ...prev,
+        friendName: newNickname,
+      }));
+    }
+    localStorage.setItem(`nickname_${conversationId}`, newNickname);
+  } else {
+    console.error("Invalid nicknameChanged data:", { conversationId, newNickname });
   }
-  localStorage.setItem(`nickname_${conversationId}`, newNickname);
 });
 
       socketRef.current.on("callRequest", (data) => {
