@@ -92,7 +92,38 @@ function ChatWindow({
       };
     }
   }, [selectedConversation, socketRef]);
+useEffect(() => {
+  if (socketRef.current) {
+    // Đảm bảo socket đã được khởi tạo
+    socketRef.current.on("connect", () => {
+      console.log("Socket connected:", socketRef.current.id);
+    });
 
+    socketRef.current.on("disconnect", () => {
+      console.log("Socket disconnected");
+    });
+
+    socketRef.current.on("connect_error", (error) => {
+      console.error("Connection error:", error.message);
+    });
+
+    // Thử emit joinConversation nếu chưa join
+    if (selectedConversation) {
+      socketRef.current.emit("joinConversation", {
+        conversationId: selectedConversation.conversationId,
+      });
+    }
+
+    // Cleanup khi unmount
+    return () => {
+      socketRef.current.off("connect");
+      socketRef.current.off("disconnect");
+      socketRef.current.off("connect_error");
+    };
+  } else {
+    console.error("socketRef.current is not initialized");
+  }
+}, [socketRef, selectedConversation]); // Phụ thuộc vào socketRef và selectedConversation
   useEffect(() => {
     if (isRecording) {
       recordingTimerRef.current = setInterval(() => {
@@ -106,34 +137,29 @@ function ChatWindow({
   }, [isRecording]);
 
 useEffect(() => {
-  // Khởi tạo kết nối Socket.IO
   socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
     auth: {
       token: JSON.parse(localStorage.getItem("tokens"))?.accessToken,
     },
-    withCredentials: true, // Cho phép gửi cookie nếu cần
+    withCredentials: true,
   });
 
-  // Xử lý sự kiện khi kết nối thành công
   socketRef.current.on("connect", () => {
     console.log("Socket connected:", socketRef.current.id);
   });
 
-  // Xử lý sự kiện khi mất kết nối
   socketRef.current.on("disconnect", () => {
     console.log("Socket disconnected");
   });
 
-  // Xử lý lỗi kết nối
   socketRef.current.on("connect_error", (error) => {
     console.error("Connection error:", error.message);
   });
 
-  // Cleanup khi component unmount
   return () => {
     socketRef.current.disconnect();
   };
-}, []); // Chạy một lần khi component mount, không phụ thuộc vào socketRef
+}, []);
 
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
@@ -327,8 +353,15 @@ const fetchMessages = async () => {
     cleanupCall(peerConnection);
   };
 
-  const handleSendMessage = async () => {
-  if (!selectedConversation || !socketRef.current?.connected) return;
+ const handleSendMessage = async () => {
+  if (!selectedConversation || !socketRef.current?.connected) {
+    console.log("Cannot send: No conversation or socket not connected", {
+      selectedConversation,
+      connected: socketRef.current?.connected,
+    });
+    toast.error("Không thể gửi tin nhắn. Kiểm tra kết nối.");
+    return;
+  }
 
   let messageContent = newMessage.trim();
   let messageType = "text";
@@ -406,6 +439,46 @@ const fetchMessages = async () => {
   } else if (!messageContent) {
     return;
   }
+
+  const message = {
+    conversationId: selectedConversation.conversationId,
+    senderId: currentUser,
+    receiverId: selectedConversation.friendId,
+    content: messageContent,
+    type: messageType,
+    timestamp: new Date().toISOString(),
+  };
+
+  console.log("Sending message:", message);
+  socketRef.current.emit("sendMessage", message, (response) => {
+    if (response?.error) {
+      toast.error(response.error);
+      setMessages((prev) =>
+        prev.filter((msg) => msg.timestamp !== message.timestamp)
+      );
+    } else {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.timestamp === message.timestamp ? { ...msg, status: "sent" } : msg
+        )
+      );
+    }
+  });
+
+  setMessages((prev) => [...prev, { ...message, status: "sending" }]);
+  setNewMessage("");
+  setFile(null);
+  setFilePreview(null);
+  setFilePreviewType(null);
+  setAudioBlob(null);
+  setAudioPreviewUrl(null);
+  setIsRecording(false);
+  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+  if (onMessageSent) {
+    onMessageSent(selectedConversation.conversationId, message);
+  }
+
 
   // Gửi tin nhắn qua Socket.IO
   const messageData = {
