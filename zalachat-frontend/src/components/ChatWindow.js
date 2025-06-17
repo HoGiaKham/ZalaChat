@@ -636,30 +636,26 @@ const handleChangeTheme = (themeColor) => {
   setShowThemeModal(false);
   setShowSettingsModal(true);
 
-    
-    const systemMessage = {
-      conversationId: selectedConversation.conversationId,
-      senderId: currentUser,
-      receiverId: selectedConversation.friendId,
-      content: "Bạn đã thay đổi chủ đề màu sắc",
-      type: "system",
-      timestamp: new Date().toISOString(),
-      status: "sent",
-    };
-    socketRef.current.emit("sendMessage", systemMessage, (response) => {
-      if (response?.error) {
-        toast.error(response.error);
-        setMessages((prev) =>
-          prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
-        );
-      }
-    });
-    setMessages((prev) => [...prev, systemMessage]);
-    selectedConversation.theme = themeColor;
-    setShowThemeModal(false);
-    setShowSettingsModal(true);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const systemMessage = {
+    conversationId: selectedConversation.conversationId,
+    senderId: currentUser,
+    receiverId: selectedConversation.friendId,
+    content: "Bạn đã thay đổi chủ đề màu sắc",
+    type: "system",
+    timestamp: new Date().toISOString(),
+    status: "sent",
   };
+  socketRef.current.emit("sendMessage", systemMessage, (response) => {
+    if (response?.error) {
+      toast.error(response.error);
+      setMessages((prev) =>
+        prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
+      );
+    }
+  });
+  setMessages((prev) => [...prev, systemMessage]);
+  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+};
 
 const handleSetNickname = () => {
   if (!nickname.trim()) {
@@ -699,32 +695,6 @@ const handleSetNickname = () => {
   messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   setShowSettingsModal(true); // Only one call
 };
-
-
-    const systemMessage = {
-      conversationId: selectedConversation.conversationId,
-      senderId: currentUser,
-      receiverId: selectedConversation.friendId,
-      content: `Bạn đã đổi biệt hiệu của ${profile?.name || selectedConversation.friendName} thành ${nickname}`,
-      type: "system",
-      timestamp: new Date().toISOString(),
-      status: "sent",
-    };
-    socketRef.current.emit("sendMessage", systemMessage, (response) => {
-      if (response?.error) {
-        toast.error(response.error);
-        setMessages((prev) =>
-          prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
-        );
-      }
-    });
-    setMessages((prev) => [...prev, systemMessage]);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
-    setShowNicknameModal(false);
-    setNickname("");
-    setShowSettingsModal(true);
-  };
 
   const handleShowSearchBar = () => {
     setShowSearchBar(true);
@@ -1620,6 +1590,5 @@ const handleSendReaction = (reaction) => {
       <ToastContainer />
     </div>
   );
-
-
+}
 export default ChatWindow;
