@@ -180,6 +180,25 @@ socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction })
     return () => clearInterval(recordingTimerRef.current);
   }, [isRecording]);
 
+  useEffect(() => {
+  if (!socketRef.current) return;
+
+  const handleMessageDeleted = ({ conversationId, timestamp }) => {
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.timestamp === timestamp ? { ...msg, status: "deleted" } : msg
+      )
+    );
+  };
+
+  socketRef.current.on("messageDeleted", handleMessageDeleted);
+
+  return () => {
+    socketRef.current.off("messageDeleted", handleMessageDeleted);
+  };
+}, [socketRef]);
+
+
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -192,6 +211,13 @@ const handleMessageDeleted = ({ conversationId, timestamp }) => {
     )
   );
 };
+useEffect(() => {
+  if (socketRef.current && selectedConversation) {
+    socketRef.current.emit("joinConversation", {
+      conversationId: selectedConversation.conversationId,
+    });
+  }
+}, [selectedConversation]);
 
   const initializePeerConnection = () => {
     const pc = new RTCPeerConnection(configuration);
@@ -1009,13 +1035,16 @@ const handleSendReaction = (reaction) => {
                     </div>
                   )}
                 </div>
-                {msg.status === "deleted" &&
-                msg.senderId === currentUser ? (
-                  <i className="statusText">Tin nhắn đã bị xóa</i>
-                ) : msg.type === "recalled" ? (
-                  <i className="statusText">Tin nhắn đã được thu hồi</i>
-                ) : msg.type === "system" ? (
-                  <span className="systemMessage">{filteredContent}</span>
+                {msg.status === "deleted" ? (
+  msg.senderId === currentUser ? (
+    <i className="statusText">Tin nhắn đã bị xóa</i>
+  ) : (
+    <i className="statusText">Tin nhắn đã bị người gửi xóa</i>
+  )
+) : msg.type === "recalled" ? (
+  <i className="statusText">Tin nhắn đã được thu hồi</i>
+) : msg.type === "system" ? (
+  <span className="systemMessage">{filteredContent}</span>
                 ) : (
                   <>
                     <div className="senderName">{senderName}</div>
