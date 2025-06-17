@@ -49,10 +49,9 @@ function Contacts() {
     fetchFriends();
     fetchFriendRequests();
 
-socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
-  auth: { token: tokens.accessToken },
-});
-
+    socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+      auth: { token: tokens.accessToken },
+    });
 
     socketRef.current.on("receiveFriendRequest", () => {
       console.log("Nhận được lời mời kết bạn mới!");
@@ -70,23 +69,24 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
 
     socketRef.current.on("friendRemovedClient", ({ friendId }) => {
       console.log(`Bạn đã bị hủy kết bạn với ID: ${friendId}`);
-      setFriends(prev => prev.filter(friend => friend.friendId !== friendId));
+      setFriends((prev) => prev.filter((friend) => friend.friendId !== friendId));
     });
 
-    // Xử lý sự kiện có bạn bè mới (thông báo cho người được chấp nhận)
+    // Cập nhật khi có bạn bè mới
     socketRef.current.on("friendAdded", (newFriend) => {
       console.log("Có bạn bè mới:", newFriend);
-      setFriends(prev => [...prev, newFriend]);
-      setFriendRequests(prev => prev.filter(req => req.senderId !== newFriend.friendId)); // Loại bỏ lời mời đã chấp nhận
+      setFriends((prev) => [...prev, newFriend]);
+      setFriendRequests((prev) => prev.filter((req) => req.senderId !== newFriend.friendId));
+      // Phát event để Chats.js nhận và cập nhật
+      socketRef.current.emit("friendListUpdated", { friends: [...friends, newFriend] });
     });
 
-    // Cleanup socket khi component unmount
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, [friends]); // Thêm friends vào dependency để re-fetch khi có thay đổi
 
   const validateToken = () => {
     const tokens = JSON.parse(localStorage.getItem("tokens"));
@@ -134,7 +134,6 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
         { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
       );
       setFriendRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-      // Sau khi chấp nhận, server sẽ phát sự kiện "friendAdded" để cập nhật danh sách bạn bè
       alert("Đã chấp nhận lời mời kết bạn!");
     } catch (error) {
       console.error("Lỗi khi chấp nhận lời mời:", error);
@@ -177,6 +176,7 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
         { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
       );
       setFriends((prev) => prev.filter((friend) => friend.friendId !== friendId));
+      socketRef.current.emit("friendListUpdated", { friends: friends.filter((f) => f.friendId !== friendId) });
       alert("Đã hủy kết bạn!");
     } catch (error) {
       console.error("Lỗi khi hủy kết bạn:", error);
