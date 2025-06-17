@@ -324,12 +324,13 @@ useEffect(() => {
     const tokens = JSON.parse(localStorage.getItem("tokens"));
     if (!tokens?.accessToken || !currentUser) return;
 
-    socketRef.current = io("http://localhost:5000", {
-      auth: { token: tokens.accessToken },
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
+socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+  auth: { token: tokens.accessToken },
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,
+});
+
 
     socketRef.current.on("connect", () => {
       console.log("Socket.IO connected successfully");
