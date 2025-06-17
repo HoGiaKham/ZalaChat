@@ -38,9 +38,16 @@ const cognitoISP = new AWS.CognitoIdentityServiceProvider({
 });
 
 app.use(cors({
-  origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',') : allowedOrigins,
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
 }));
+
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
 
