@@ -199,7 +199,7 @@ io.on("connection", (socket) => {
 socket.on("nicknameChanged", async (data, callback) => {
   if (!data.conversationId || !data.newNickname) {
     console.error("Invalid nicknameChanged data:", data);
-    if (callback) callback({ success: false, error: "Dữ liệu không hợp lệ" });
+    if (callback) callback({ success: false, error: "Dữ liệu không hợp lệ." });
     return;
   }
 
