@@ -16,9 +16,9 @@ import { v4 as uuidv4 } from "uuid";
 
 // Define allowed origins for CORS
 const allowedOrigins = [
-  "http://localhost:3000", // Development environment
-  "https://your-vercel-app.vercel.app", // Replace with your actual Vercel domain
-  "https://zalachat-backend.onrender.com" // Render backend domain
+  "http://localhost:3000", // Phát triển
+  "https://zala-chat-ygt9.vercel.app", // Thay bằng domain thực tế của bạn
+  "https://zalachat-backend.onrender.com" // Domain Render
 ];
 
 const app = express();
