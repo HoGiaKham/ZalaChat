@@ -1096,7 +1096,7 @@ const formatDateLabel = (date) => {
     <React.Fragment key={index}>
       {showDateLabel && (
         <div className={`date-container1 ${theme === "dark" ? "dark" : ""}`}>
-          <div className="dateDivider" style={{ textAlign: "center", margin: "0 auto" }}>
+          <div className="dateDivider1" style={{ textAlign: "center", margin: "0 auto" }}>
             {formatDateLabel(msg.timestamp)}
           </div>
         </div>

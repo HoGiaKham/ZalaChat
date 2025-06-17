@@ -213,7 +213,7 @@
 }
 
 /* Updated date divider style */
-.dateDivider {
+.dateDivider1 {
   background: none; /* Remove original gradient background */
   color: #666;
   font-size: 14px;
@@ -223,7 +223,7 @@
   transition: transform 0.2s;
 }
 
-.dateDivider.dark {
+.dateDivider.dark1 {
   color: #e4e6eb;
 }
 
