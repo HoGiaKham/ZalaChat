@@ -169,8 +169,8 @@ io.on("connection", (socket) => {
           ExpressionAttributeValues: { ":status": "recalled", ":type": "recalled" },
         })
       );
-      console.log(`Emitting messageRecalled to conversation ${conversationId}`);
-      io.to(conversationId).emit("messageRecalled", { conversationId, timestamp });
+console.log(`Emitting messageRecalled to conversation ${conversationId}`);
+io.to(conversationId).emit("messageRecalled", { conversationId, timestamp });
     } catch (error) {
       console.error("Error recalling message:", error.message);
     }
