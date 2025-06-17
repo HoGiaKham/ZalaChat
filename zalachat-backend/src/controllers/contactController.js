@@ -232,36 +232,61 @@ export const rejectFriendRequest = async (req, res) => {
 };
 
 export const getFriends = async (req, res) => {
-    const accessToken = req.headers.authorization?.split(" ")[1];
+  const accessToken = req.headers.authorization?.split(" ")[1];
 
-    if (!accessToken) {
-        return res.status(401).json({ error: "Yêu cầu access token" });
-    }
+  if (!accessToken) {
+    return res.status(401).json({ error: "Yêu cầu access token" });
+  }
 
-    try {
-        const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
-        const userId = userData.Username;
+  try {
+    const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
+    const userId = userData.Username;
 
-        const params = {
-            TableName: process.env.DYNAMODB_TABLE_FRIENDS,
-            KeyConditionExpression: "userId = :uid",
-            ExpressionAttributeValues: {
-                ":uid": userId,
-            },
+    const params = {
+      TableName: process.env.DYNAMODB_TABLE_FRIENDS,
+      KeyConditionExpression: "userId = :uid",
+      ExpressionAttributeValues: {
+        ":uid": userId,
+      },
+    };
+
+    const result = await dynamoDBClient.send(new QueryCommand(params));
+    const friends = await Promise.all(
+      result.Items.map(async (item) => {
+        let friendName = item.friendName;
+        if (!friendName) {
+          try {
+            const friendData = await cognitoISP.adminGetUser({
+              UserPoolId: process.env.COGNITO_USER_POOL_ID,
+              Username: item.friendId,
+            }).promise();
+            friendName = friendData.UserAttributes.find(attr => attr.Name === "name")?.Value || item.friendId;
+            // Cập nhật lại bảng nếu tên mới được fetch
+            await dynamoDBClient.send(
+              new UpdateCommand({
+                TableName: process.env.DYNAMODB_TABLE_FRIENDS,
+                Key: { userId, friendId: item.friendId },
+                UpdateExpression: "set friendName = :fn",
+                ExpressionAttributeValues: { ":fn": friendName },
+              })
+            );
+          } catch (error) {
+            console.error(`Error fetching friend ${item.friendId} name:`, error.message);
+            friendName = item.friendId;
+          }
+        }
+        return {
+          friendId: item.friendId,
+          friendName,
+          timestamp: item.timestamp,
         };
-
-        const result = await dynamoDBClient.send(new QueryCommand(params));
-        res.json(
-            result.Items.map((item) => ({
-                friendId: item.friendId,
-                friendName: item.friendName,
-                timestamp: item.timestamp,
-            }))
-        );
-    } catch (error) {
-        console.error("Lỗi khi lấy danh sách bạn bè:", error);
-        res.status(400).json({ error: error.message || "Không thể lấy danh sách bạn bè" });
-    }
+      })
+    );
+    res.json(friends);
+  } catch (error) {
+    console.error("Lỗi khi lấy danh sách bạn bè:", error);
+    res.status(400).json({ error: error.message || "Không thể lấy danh sách bạn bè" });
+  }
 };
 
 export const removeFriend = async (req, res) => {

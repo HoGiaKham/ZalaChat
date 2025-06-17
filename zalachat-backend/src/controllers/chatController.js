@@ -85,65 +85,74 @@ const getConversations = async (req, res) => {
   let userId;
   try {
     const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
-    const userId = userData.Username;
-    const params = {
+    userId = userData.Username;
+
+    // Lấy toàn bộ danh sách bạn bè
+    const friendParams = {
       TableName: process.env.DYNAMODB_TABLE_FRIENDS,
       KeyConditionExpression: "userId = :uid",
       ExpressionAttributeValues: { ":uid": userId },
     };
-    const result = await dynamoDBClient.send(new QueryCommand(params));
-    if (!result.Items.length) {
-      console.log(`No conversations found for user ${userId}`);
-      return res.json([]);
-    }
+    const friendResult = await dynamoDBClient.send(new QueryCommand(friendParams));
+    const friends = friendResult.Items;
+
     const conversations = await Promise.all(
-      result.Items.map(async (item) => {
+      friends.map(async (item) => {
         let conversationId = item.conversationId;
         if (!conversationId) {
-          const friendParams = {
+          const friendCheckParams = {
             TableName: process.env.DYNAMODB_TABLE_FRIENDS,
-            KeyConditionExpression: "userId = :uid and friendId = :fid",
-            ExpressionAttributeValues: { ":uid": item.friendId, ":fid": userId },
+            KeyConditionExpression: "userId = :fid and friendId = :uid",
+            ExpressionAttributeValues: { ":fid": item.friendId, ":uid": userId },
           };
-          const friendResult = await dynamoDBClient.send(new QueryCommand(friendParams));
-          if (friendResult.Items.length > 0 && friendResult.Items[0].conversationId) {
-            conversationId = friendResult.Items[0].conversationId;
+          const friendCheckResult = await dynamoDBClient.send(new QueryCommand(friendCheckParams));
+          if (friendCheckResult.Items.length > 0 && friendCheckResult.Items[0].conversationId) {
+            conversationId = friendCheckResult.Items[0].conversationId;
           } else {
             conversationId = uuidv4();
+            await Promise.all([
+              dynamoDBClient.send(
+                new UpdateCommand({
+                  TableName: process.env.DYNAMODB_TABLE_FRIENDS,
+                  Key: { userId: userId, friendId: item.friendId },
+                  UpdateExpression: "set conversationId = :cid",
+                  ExpressionAttributeValues: { ":cid": conversationId },
+                })
+              ),
+              dynamoDBClient.send(
+                new UpdateCommand({
+                  TableName: process.env.DYNAMODB_TABLE_FRIENDS,
+                  Key: { userId: item.friendId, friendId: userId },
+                  UpdateExpression: "set conversationId = :cid",
+                  ExpressionAttributeValues: { ":cid": conversationId },
+                })
+              ),
+            ]);
+            console.log(`Created conversationId ${conversationId} for user ${userId} and friend ${item.friendId}`);
           }
-          await Promise.all([
-            dynamoDBClient.send(
+        }
+
+        let friendName = item.friendName;
+        if (!friendName) {
+          try {
+            const friendData = await cognitoISP.adminGetUser({
+              UserPoolId: process.env.COGNITO_USER_POOL_ID,
+              Username: item.friendId,
+            }).promise();
+            friendName = friendData.UserAttributes.find(attr => attr.Name === "name")?.Value || item.friendId;
+            await dynamoDBClient.send(
               new UpdateCommand({
                 TableName: process.env.DYNAMODB_TABLE_FRIENDS,
                 Key: { userId: userId, friendId: item.friendId },
-                UpdateExpression: "set conversationId = :cid",
-                ExpressionAttributeValues: { ":cid": conversationId },
+                UpdateExpression: "set friendName = :fn",
+                ExpressionAttributeValues: { ":fn": friendName },
               })
-            ),
-            dynamoDBClient.send(
-              new UpdateCommand({
-                TableName: process.env.DYNAMODB_TABLE_FRIENDS,
-                Key: { userId: item.friendId, friendId: userId },
-                UpdateExpression: "set conversationId = :cid",
-                ExpressionAttributeValues: { ":cid": conversationId },
-              })
-            ),
-          ]);
-          console.log(`Created conversationId ${conversationId} for user ${userId} and friend ${item.friendId}`);
+            );
+          } catch (error) {
+            console.error(`Error fetching friend ${item.friendId} name:`, error.message);
+            friendName = item.friendId;
+          }
         }
- let friendName = item.friendName;
-if (!friendName) {
-  try {
-    const friendData = await cognitoISP.adminGetUser({
-      UserPoolId: process.env.COGNITO_USER_POOL_ID,
-      Username: item.friendId,
-    }).promise();
-    friendName = friendData.UserAttributes.find(attr => attr.Name === "name")?.Value || item.friendId;
-  } catch (error) {
-    console.error(`Error fetching friend ${item.friendId} name:`, error.message);
-    friendName = item.friendId;
-  }
-}
 
         const lastMessageParams = {
           TableName: process.env.DYNAMODB_TABLE_MESSAGES,
@@ -163,6 +172,7 @@ if (!friendName) {
         };
       })
     );
+
     conversations.sort((a, b) => {
       const timestampA = a.lastMessageTimestamp ? new Date(a.lastMessageTimestamp).getTime() : 0;
       const timestampB = b.lastMessageTimestamp ? new Date(b.lastMessageTimestamp).getTime() : 0;

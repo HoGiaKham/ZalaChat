@@ -21,10 +21,8 @@ const app = express();
 const server = http.createServer(app);
 
 // Cấu hình CORS cho cả Express và Socket.io
-const allowedOrigins = [
-  "http://localhost:3000", // Cho môi trường phát triển cục bộ
-  "https://zala-chat-ygt9.vercel.app", // Cho môi trường sản xuất
-];
+const allowedOrigins = process.env.CLIENT_URL.split(",").filter(Boolean); // Lấy từ CLIENT_URL
+console.log("Allowed Origins:", allowedOrigins);
 
 const io = new Server(server, {
   cors: {
@@ -37,14 +35,13 @@ const io = new Server(server, {
 global.io = io;
 
 const cognitoISP = new AWS.CognitoIdentityServiceProvider({
-  region: process.env.AWS_REGION || "us-east-1",
+  region: process.env.AWS_REGION || "ap-southeast-1",
 });
 
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
 }));
-
 
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
@@ -90,8 +87,8 @@ io.use(async (socket, next) => {
 const getFileType = (url) => {
   if (!url) return "file";
   if (/\.(jpg|jpeg|png|gif)$/i.test(url)) return "image";
-  if (/\.(mp3|wav|ogg|webm)$/i.test(url)) return "audio"; // Thêm .webm vào audio
-  if (/\.(mp4|avi|mkv|mov)$/i.test(url)) return "video"; // Loại .webm khỏi video
+  if (/\.(mp3|wav|ogg|webm)$/i.test(url)) return "audio";
+  if (/\.(mp4|avi|mkv|mov)$/i.test(url)) return "video";
   return "file";
 };
 
@@ -169,8 +166,8 @@ io.on("connection", (socket) => {
           ExpressionAttributeValues: { ":status": "recalled", ":type": "recalled" },
         })
       );
-console.log(`Emitting messageRecalled to conversation ${conversationId}`);
-io.to(conversationId).emit("messageRecalled", { conversationId, timestamp });
+      console.log(`Emitting messageRecalled to conversation ${conversationId}`);
+      io.to(conversationId).emit("messageRecalled", { conversationId, timestamp });
     } catch (error) {
       console.error("Error recalling message:", error.message);
     }
@@ -196,36 +193,37 @@ io.to(conversationId).emit("messageRecalled", { conversationId, timestamp });
       console.error("Error deleting message:", error.message);
     }
   });
-socket.on("nicknameChanged", async (data, callback) => {
-  if (!data.conversationId || !data.newNickname) {
-    console.error("Invalid nicknameChanged data:", data);
-    if (callback) callback({ success: false, error: "Dữ liệu không hợp lệ." });
-    return;
-  }
 
-  try {
-    // Lưu nickname vào DynamoDB
-    await dynamoDBClient.send(
-      new UpdateCommand({
-        TableName: process.env.DYNAMODB_TABLE_CONVERSATIONS,
-        Key: { conversationId: data.conversationId },
-        UpdateExpression: "set #nickname = :nickname",
-        ExpressionAttributeNames: { "#nickname": "friendName" },
-        ExpressionAttributeValues: { ":nickname": data.newNickname },
-      })
-    );
+  socket.on("nicknameChanged", async (data, callback) => {
+    if (!data.conversationId || !data.newNickname) {
+      console.error("Invalid nicknameChanged data:", data);
+      if (callback) callback({ success: false, error: "Dữ liệu không hợp lệ." });
+      return;
+    }
 
-    console.log(`Nickname changed in conversation ${data.conversationId} to ${data.newNickname} by ${socket.user.sub}`);
-    io.to(data.conversationId).emit("nicknameChanged", {
-      conversationId: data.conversationId,
-      newNickname: data.newNickname,
-    });
-    if (callback) callback({ success: true });
-  } catch (error) {
-    console.error("Error updating nickname:", error.message);
-    if (callback) callback({ success: false, error: "Lỗi server" });
-  }
-});
+    try {
+      await dynamoDBClient.send(
+        new UpdateCommand({
+          TableName: process.env.DYNAMODB_TABLE_CONVERSATIONS,
+          Key: { conversationId: data.conversationId },
+          UpdateExpression: "set #nickname = :nickname",
+          ExpressionAttributeNames: { "#nickname": "friendName" },
+          ExpressionAttributeValues: { ":nickname": data.newNickname },
+        })
+      );
+
+      console.log(`Nickname changed in conversation ${data.conversationId} to ${data.newNickname} by ${socket.user.sub}`);
+      io.to(data.conversationId).emit("nicknameChanged", {
+        conversationId: data.conversationId,
+        newNickname: data.newNickname,
+      });
+      if (callback) callback({ success: true });
+    } catch (error) {
+      console.error("Error updating nickname:", error.message);
+      if (callback) callback({ success: false, error: "Lỗi server" });
+    }
+  });
+
   socket.on("forwardMessage", async ({ conversationId, newConversationId, content, type, forwardedFrom }) => {
     try {
       if (!newConversationId || !content) {
@@ -274,7 +272,6 @@ socket.on("nicknameChanged", async (data, callback) => {
         status: "sent",
       };
 
-      console.log("Saving group message to DynamoDB:", messageData);
       await dynamoDBClient.send(
         new PutCommand({
           TableName: process.env.DYNAMODB_TABLE_GROUP_MESSAGES,
@@ -348,7 +345,6 @@ socket.on("nicknameChanged", async (data, callback) => {
         timestamp,
         status: "sent",
       };
-      console.log("Saving forwarded group message to DynamoDB:", newMessage);
       await dynamoDBClient.send(
         new PutCommand({
           TableName: process.env.DYNAMODB_TABLE_GROUP_MESSAGES,
@@ -560,6 +556,14 @@ socket.on("nicknameChanged", async (data, callback) => {
     }
     console.log(`Group video call ended in groupId ${groupId} by ${socket.user.sub}`);
     socket.to(groupId).emit("videoCallEnded", { groupId });
+  });
+
+  // Thêm xử lý sự kiện friendListUpdated
+  socket.on("friendListUpdated", (data) => {
+    console.log(`Received friendListUpdated event from ${socket.user.sub}:`, data);
+    // Broadcast to all connected clients except the sender
+    socket.broadcast.emit("friendListUpdated", data);
+    console.log(`Broadcasted friendListUpdated to all clients`);
   });
 });
 
