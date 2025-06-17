@@ -23,9 +23,15 @@ const allowedOrigins = [
 
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
+      const allowedOrigins = [
+        "http://localhost:3000",
+        "https://zala-chat-ygt9.vercel.app",
+        "https://zalachat-backend.onrender.com"
+      ];
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
