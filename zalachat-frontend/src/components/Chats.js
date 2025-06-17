@@ -221,10 +221,10 @@ useEffect(() => {
   useEffect(() => {
     if (currentUser) {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
-      socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
-        auth: { token: tokens.accessToken },
-        transports: ["websocket"],
-      });
+socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+  auth: { token: tokens.accessToken },
+  transports: ["websocket", "polling"], // Thêm polling làm fallback
+});
 
       socketRef.current.on("connect", () => {
         console.log("Socket.IO connected with ID:", socketRef.current.id);
@@ -287,29 +287,31 @@ useEffect(() => {
         }
       });
 
-      socketRef.current.on("messageRecalled", (data) => {
-        if (
-          selectedConversation &&
-          data.conversationId === selectedConversation.conversationId
-        ) {
-          setLastMessages((prev) => ({
-            ...prev,
-            [data.conversationId]: { ...prev[data.conversationId], type: "recalled" },
-          }));
-        }
-      });
+socketRef.current.on("messageRecalled", (data) => {
+  console.log("Received messageRecalled in Chats.js:", data);
+  if (
+    selectedConversation &&
+    data.conversationId === selectedConversation.conversationId
+  ) {
+    setLastMessages((prev) => ({
+      ...prev,
+      [data.conversationId]: { ...prev[data.conversationId], type: "recalled" },
+    }));
+  }
+});
 
-      socketRef.current.on("messageDeleted", (data) => {
-        if (
-          selectedConversation &&
-          data.conversationId === selectedConversation.conversationId
-        ) {
-          setLastMessages((prev) => ({
-            ...prev,
-            [data.conversationId]: { ...prev[data.conversationId], status: "deleted" },
-          }));
-        }
-      });
+socketRef.current.on("messageDeleted", (data) => {
+  console.log("Received messageDeleted in Chats.js:", data);
+  if (
+    selectedConversation &&
+    data.conversationId === selectedConversation.conversationId
+  ) {
+    setLastMessages((prev) => ({
+      ...prev,
+      [data.conversationId]: { ...prev[data.conversationId], status: "deleted" },
+    }));
+  }
+});
 
       socketRef.current.on("themeChanged", (data) => {
         setConversations((prevConvs) => {

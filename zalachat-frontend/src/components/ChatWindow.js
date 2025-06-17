@@ -61,6 +61,24 @@ useEffect(() => {
       conversationId: selectedConversation.conversationId,
     });
 
+    const handleMessageRecalled = ({ conversationId, timestamp }) => {
+      console.log("Received messageRecalled:", { conversationId, timestamp });
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.timestamp === timestamp ? { ...msg, type: "recalled", status: "recalled" } : msg
+        )
+      );
+    };
+
+    const handleMessageDeleted = ({ conversationId, timestamp }) => {
+      console.log("Received messageDeleted:", { conversationId, timestamp });
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.timestamp === timestamp ? { ...msg, status: "deleted" } : msg
+        )
+      );
+    };
+
     socketRef.current.on("receiveMessage", (message) => {
       setMessages((prev) => [...prev, message]);
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,42 +87,8 @@ useEffect(() => {
       }
     });
 
-    socketRef.current.on("lastMessageUpdated", ({ conversationId, lastMessage }) => {
-      if (conversationId === selectedConversation.conversationId && onMessageSent) {
-        onMessageSent(conversationId, lastMessage);
-      }
-    });
-
-    socketRef.current.on("messagesRead", ({ conversationId, userId }) => {
-      if (conversationId === selectedConversation.conversationId && userId !== currentUser) {
-        setMessages((prev) =>
-          prev.map((msg) => ({
-            ...msg,
-            readBy: [...(msg.readBy || []), userId],
-          }))
-        );
-      }
-    });
-socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction }) => {
-  setMessages((prev) =>
-    prev.map((msg) =>
-      msg.timestamp === timestamp ? { ...msg, reaction } : msg
-    )
-  );
-});
-    socketRef.current.on("themeChanged", ({ conversationId, newTheme, from }) => {
-      if (conversationId === selectedConversation.conversationId && from !== currentUser) {
-        localStorage.setItem(`theme_${conversationId}`, newTheme);
-        setSelectedConversation((prev) => ({ ...prev, theme: newTheme }));
-      }
-    });
-
-    socketRef.current.on("nicknameChanged", ({ conversationId, newNickname }) => {
-      if (conversationId === selectedConversation.conversationId) {
-        localStorage.setItem(`nickname_${conversationId}`, newNickname);
-        setSelectedConversation((prev) => ({ ...prev, friendName: newNickname }));
-      }
-    });
+    socketRef.current.on("messageRecalled", handleMessageRecalled);
+    socketRef.current.on("messageDeleted", handleMessageDeleted);
 
     socketRef.current.on("messageSent", (response) => {
       if (response.error) {
@@ -125,45 +109,22 @@ socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction })
       toast.error(error.message || "Đã xảy ra lỗi");
     });
 
-    socketRef.current.on("messageRecalled", ({ conversationId, timestamp }) => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.timestamp === timestamp ? { ...msg, type: "recalled", status: "recalled" } : msg
-        )
-      );
-    });
-
-    socketRef.current.on("messageDeleted", ({ conversationId, timestamp }) => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.timestamp === timestamp ? { ...msg, status: "deleted" } : msg
-        )
-      );
-    });
-
     fetchMessages();
     fetchUserProfile(selectedConversation.friendId);
     setShowSearchBar(false);
     setSearchQuery("");
 
-    // Mark messages as read when conversation is opened
     socketRef.current.emit("markAsRead", {
       conversationId: selectedConversation.conversationId,
       userId: currentUser,
     });
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.off("receiveMessage");
-        socketRef.current.off("lastMessageUpdated");
-        socketRef.current.off("messagesRead");
-        socketRef.current.off("themeChanged");
-        socketRef.current.off("nicknameChanged");
-        socketRef.current.off("messageSent");
-        socketRef.current.off("error");
-        socketRef.current.off("messageRecalled");
-        socketRef.current.off("messageDeleted", handleMessageDeleted); 
-      }
+      socketRef.current.off("receiveMessage");
+      socketRef.current.off("messageRecalled", handleMessageRecalled);
+      socketRef.current.off("messageDeleted", handleMessageDeleted);
+      socketRef.current.off("messageSent");
+      socketRef.current.off("error");
     };
   }
 }, [selectedConversation, socketRef, currentUser, onMessageSent]);
