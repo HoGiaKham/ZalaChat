@@ -162,7 +162,7 @@ socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction })
         socketRef.current.off("messageSent");
         socketRef.current.off("error");
         socketRef.current.off("messageRecalled");
-        socketRef.current.off("messageDeleted");
+        ssocketRef.current.off("messageDeleted", handleMessageDeleted); 
       }
     };
   }

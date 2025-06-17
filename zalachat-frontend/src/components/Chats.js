@@ -183,6 +183,18 @@ function Chats({ themes }) {
       return prevConvs;
     });
   }, [currentUser]);
+useEffect(() => {
+  if (
+    socketRef.current &&
+    selectedConversation &&
+    selectedConversation.conversationId
+  ) {
+    socketRef.current.emit("joinConversation", {
+      conversationId: selectedConversation.conversationId,
+    });
+    console.log("Joined conversation room (private):", selectedConversation.conversationId);
+  }
+}, [selectedConversation]);
 
   useEffect(() => {
     if (currentUser) {
