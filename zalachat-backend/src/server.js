@@ -38,7 +38,7 @@ const cognitoISP = new AWS.CognitoIdentityServiceProvider({
 });
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',') : allowedOrigins,
   credentials: true,
 }));
 app.use(express.json());
