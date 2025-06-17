@@ -14,30 +14,15 @@ import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 
-const app = express();
-const server = http.createServer(app);
-
-
-// ⚠️ Cần đặt trước khi dùng
+// Define allowed origins for CORS
 const allowedOrigins = [
-  "http://localhost:3000",
-  "https://zala-chat-ygt9.vercel.app",
-  "https://zala-chat-ygt9-git-main-ho-gia-khams-projects.vercel.app"
+  "http://localhost:3000", // Development environment
+  "https://your-vercel-app.vercel.app", // Replace with your actual Vercel domain
+  "https://zalachat-backend.onrender.com" // Render backend domain
 ];
 
-// ✅ CORS middleware cho REST API
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true
-}));
-
-// ✅ Cấu hình WebSocket CORS (Socket.IO)
+const app = express();
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
@@ -49,18 +34,25 @@ const io = new Server(server, {
     },
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
 });
 
 global.io = io;
 
-// ✅ AWS Cognito
 const cognitoISP = new AWS.CognitoIdentityServiceProvider({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
-
-
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS (Express)"));
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
 
@@ -552,5 +544,5 @@ io.on("connection", (socket) => {
 // Start the Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT} at ${new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`);
 });
