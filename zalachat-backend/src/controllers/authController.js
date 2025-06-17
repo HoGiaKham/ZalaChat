@@ -1,28 +1,23 @@
-﻿import { CognitoUserPool, CognitoUser, AuthenticationDetails } from "amazon-cognito-identity-js";
+﻿// src/controllers/authController.js
+import { CognitoUserPool, CognitoUser, AuthenticationDetails } from "amazon-cognito-identity-js";
 import AWS from "aws-sdk";
 import { cognitoConfig } from "../config/aws.js";
 
 const userPool = new CognitoUserPool(cognitoConfig);
-const cognitoISP = new AWS.CognitoIdentityServiceProvider({
-  region: process.env.AWS_REGION,
-});
-const s3 = new AWS.S3({
-  region: process.env.AWS_REGION,
-});
+const cognitoISP = new AWS.CognitoIdentityServiceProvider({ region: process.env.AWS_REGION });
+const s3 = new AWS.S3({ region: process.env.AWS_REGION });
 
 export const updateUserInfo = async (req, res) => {
   const accessToken = req.headers.authorization?.split(" ")[1];
   const { name, phone_number, email } = req.body;
 
-  if (!accessToken) {
-    return res.status(401).json({ error: "Access token is required" });
-  }
+  if (!accessToken) return res.status(401).json({ error: "Access token is required" });
 
   try {
     const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
-    let username = userData.Username;
-    const subAttr = userData.UserAttributes.find(attr => attr.Name === "sub");
-    if (subAttr) username = subAttr.Value;
+    const username = userData.Username;
+    const subAttr = userData.UserAttributes.find((attr) => attr.Name === "sub");
+    const sub = subAttr ? subAttr.Value : username;
 
     const userAttributes = [];
     if (name) userAttributes.push({ Name: "name", Value: name });
@@ -30,15 +25,13 @@ export const updateUserInfo = async (req, res) => {
     if (email) userAttributes.push({ Name: "email", Value: email });
 
     if (req.file) {
-      if (req.file.size > 2 * 1024 * 1024) {
+      if (req.file.size > 2 * 1024 * 1024)
         return res.status(400).json({ error: "Ảnh quá lớn, vui lòng chọn ảnh dưới 2MB" });
-      }
       const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif"];
-      if (!allowedTypes.includes(req.file.mimetype)) {
+      if (!allowedTypes.includes(req.file.mimetype))
         return res.status(400).json({ error: "Định dạng không hỗ trợ. Vui lòng chọn file JPG, JPEG, PNG hoặc GIF." });
-      }
 
-      const fileName = `avatars/${username}_${Date.now()}_${req.file.originalname}`;
+      const fileName = `avatars/${sub}_${Date.now()}_${req.file.originalname}`;
       const s3Params = {
         Bucket: process.env.S3_BUCKET_NAME,
         Key: fileName,
@@ -51,22 +44,19 @@ export const updateUserInfo = async (req, res) => {
       userAttributes.push({ Name: "custom:picture", Value: s3Result.Location });
     }
 
-    const params = {
-      UserPoolId: process.env.COGNITO_USER_POOL_ID,
-      Username: username,
-      UserAttributes: userAttributes,
-    };
-
-    console.log("→ Gửi tới Cognito:", params);
-    await cognitoISP.adminUpdateUserAttributes(params).promise();
+    await cognitoISP
+      .adminUpdateUserAttributes({
+        UserPoolId: process.env.COGNITO_USER_POOL_ID,
+        Username: username,
+        UserAttributes: userAttributes,
+      })
+      .promise();
 
     const updatedUser = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
     const updatedAttributes = {};
     updatedUser.UserAttributes.forEach((attr) => {
       updatedAttributes[attr.Name] = attr.Value;
     });
-
-    console.log("→ Dữ liệu sau cập nhật:", updatedAttributes);
 
     res.json({
       message: "Cập nhật thông tin thành công",
@@ -81,22 +71,18 @@ export const updateUserInfo = async (req, res) => {
 export const getUserInfo = async (req, res) => {
   const accessToken = req.headers.authorization?.split(" ")[1];
 
-  if (!accessToken) {
-    return res.status(401).json({ error: "Access token is required" });
-  }
+  if (!accessToken) return res.status(401).json({ error: "Access token is required" });
 
   try {
-    const params = { AccessToken: accessToken };
-    const userData = await cognitoISP.getUser(params).promise();
-
-    const userAttributes = {};
+    const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
+    const attributes = {};
     userData.UserAttributes.forEach((attr) => {
-      userAttributes[attr.Name] = attr.Value;
+      attributes[attr.Name] = attr.Value;
     });
 
     res.json({
       username: userData.Username,
-      attributes: userAttributes,
+      attributes,
     });
   } catch (error) {
     console.error("Error fetching user info:", error);
@@ -108,13 +94,10 @@ export const getUserById = async (req, res) => {
   const { userId } = req.params;
   const accessToken = req.headers.authorization?.split(" ")[1];
 
-  if (!accessToken || !userId) {
-    return res.status(401).json({ error: "Access token and userId are required" });
-  }
+  if (!accessToken || !userId) return res.status(401).json({ error: "Access token and userId are required" });
 
   try {
-    await cognitoISP.getUser({ AccessToken: accessToken }).promise();
-
+    await cognitoISP.getUser({ AccessToken: accessToken }).promise(); // Xác thực token
     const userData = await cognitoISP
       .adminGetUser({
         UserPoolId: process.env.COGNITO_USER_POOL_ID,
@@ -141,9 +124,8 @@ export const getUserById = async (req, res) => {
 
 export const register = async (req, res) => {
   const { email, password, name, phoneNumber } = req.body;
-  if (!email || !password || !name || !phoneNumber) {
+  if (!email || !password || !name || !phoneNumber)
     return res.status(400).json({ error: "Vui lòng điền đầy đủ thông tin" });
-  }
 
   const attributes = [
     { Name: "email", Value: email },
@@ -152,8 +134,8 @@ export const register = async (req, res) => {
   ];
 
   userPool.signUp(email, password, attributes, null, (err, result) => {
-    if (err) return res.status(400).json({ error: err.message });
-    res.json({ username: email });
+    if (err) return res.status(400).json({ error: err.message || "Đăng ký thất bại" });
+    res.json({ username: email, message: "Đăng ký thành công, vui lòng xác minh OTP" });
   });
 };
 
@@ -163,7 +145,7 @@ export const confirmOTP = async (req, res) => {
   const cognitoUser = new CognitoUser(userData);
 
   cognitoUser.confirmRegistration(otpCode, true, (err, result) => {
-    if (err) return res.status(400).json({ error: err.message });
+    if (err) return res.status(400).json({ error: err.message || "Xác minh OTP thất bại" });
     res.json({ message: "Xác minh thành công" });
   });
 };
@@ -186,7 +168,7 @@ export const login = async (req, res) => {
         refreshToken: result.getRefreshToken().getToken(),
       });
     },
-    onFailure: (err) => res.status(400).json({ error: err.message }),
+    onFailure: (err) => res.status(400).json({ error: err.message || "Đăng nhập thất bại" }),
   });
 };
 
@@ -197,7 +179,7 @@ export const forgotPassword = async (req, res) => {
 
   cognitoUser.forgotPassword({
     onSuccess: () => res.json({ message: "Mã đặt lại đã được gửi" }),
-    onFailure: (err) => res.status(400).json({ error: err.message }),
+    onFailure: (err) => res.status(400).json({ error: err.message || "Yêu cầu đặt lại mật khẩu thất bại" }),
   });
 };
 
@@ -208,7 +190,7 @@ export const resetPassword = async (req, res) => {
 
   cognitoUser.confirmPassword(code, newPassword, {
     onSuccess: () => res.json({ message: "Đặt lại mật khẩu thành công" }),
-    onFailure: (err) => res.status(400).json({ error: err.message }),
+    onFailure: (err) => res.status(400).json({ error: err.message || "Đặt lại mật khẩu thất bại" }),
   });
 };
 
@@ -216,9 +198,8 @@ export const changePassword = async (req, res) => {
   const accessToken = req.headers.authorization?.split(" ")[1];
   const { oldPassword, newPassword } = req.body;
 
-  if (!accessToken || !oldPassword || !newPassword) {
+  if (!accessToken || !oldPassword || !newPassword)
     return res.status(400).json({ error: "Access token, old password, and new password are required" });
-  }
 
   try {
     const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
@@ -234,18 +215,15 @@ export const changePassword = async (req, res) => {
 
     await new Promise((resolve, reject) => {
       cognitoUser.authenticateUser(authenticationDetails, {
-        onSuccess: (result) => resolve(result),
-        onFailure: (err) => reject(err),
+        onSuccess: resolve,
+        onFailure: reject,
       });
     });
 
     await new Promise((resolve, reject) => {
       cognitoUser.changePassword(oldPassword, newPassword, (err, result) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(result);
-        }
+        if (err) reject(err);
+        else resolve(result);
       });
     });
 
@@ -253,13 +231,9 @@ export const changePassword = async (req, res) => {
   } catch (error) {
     console.error("Error changing password:", error);
     let errorMessage = "Không thể thay đổi mật khẩu";
-    if (error.code === "NotAuthorizedException") {
-      errorMessage = "Mật khẩu cũ không chính xác";
-    } else if (error.code === "InvalidParameterException") {
-      errorMessage = "Mật khẩu mới không hợp lệ (kiểm tra yêu cầu độ dài, ký tự)";
-    } else if (error.code === "LimitExceededException") {
-      errorMessage = "Vượt quá giới hạn yêu cầu, vui lòng thử lại sau";
-    }
+    if (error.code === "NotAuthorizedException") errorMessage = "Mật khẩu cũ không chính xác";
+    else if (error.code === "InvalidParameterException") errorMessage = "Mật khẩu mới không hợp lệ";
+    else if (error.code === "LimitExceededException") errorMessage = "Vượt quá giới hạn yêu cầu";
     res.status(400).json({ error: errorMessage });
   }
 };
