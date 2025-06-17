@@ -201,13 +201,13 @@ socket.on("nicknameChanged", async (data, callback) => {
   }
 
   try {
-    // Lưu nickname vào DynamoDB (bảng conversations hoặc metadata)
+    // Lưu nickname vào DynamoDB
     await dynamoDBClient.send(
       new UpdateCommand({
-        TableName: process.env.DYNAMODB_TABLE_CONVERSATIONS, // Giả sử có bảng này
+        TableName: process.env.DYNAMODB_TABLE_CONVERSATIONS,
         Key: { conversationId: data.conversationId },
         UpdateExpression: "set #nickname = :nickname",
-        ExpressionAttributeNames: { "#nickname": "friendName" }, // Tùy thuộc vào schema
+        ExpressionAttributeNames: { "#nickname": "friendName" },
         ExpressionAttributeValues: { ":nickname": data.newNickname },
       })
     );
