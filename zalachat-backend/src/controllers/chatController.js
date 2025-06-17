@@ -81,6 +81,8 @@ const getConversations = async (req, res) => {
     console.warn("Get conversations failed: No access token provided");
     return res.status(401).json({ error: "Yêu cầu access token" });
   }
+
+  let userId;
   try {
     const userData = await cognitoISP.getUser({ AccessToken: accessToken }).promise();
     const userId = userData.Username;
@@ -142,11 +144,7 @@ if (!friendName) {
     friendName = item.friendId;
   }
 }
-// Thêm kiểm tra localStorage cho biệt hiệu tùy chỉnh
-const storedNickname = localStorage.getItem(`nickname_${conversationId}`);
-if (storedNickname) {
-  friendName = storedNickname;
-}
+
         const lastMessageParams = {
           TableName: process.env.DYNAMODB_TABLE_MESSAGES,
           KeyConditionExpression: "conversationId = :cid",
