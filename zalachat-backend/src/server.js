@@ -16,10 +16,30 @@ import { v4 as uuidv4 } from "uuid";
 
 const app = express();
 const server = http.createServer(app);
+// Danh sách các origin được phép
+const allowedOrigins = [
+  'http://localhost:3000', // Môi trường phát triển
+  'https://zala-chat-ygt9.vercel.app', // Môi trường sản xuất
+];
+
+// Cấu hình CORS cho Express
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+}));
+
+// Cấu hình Socket.io với CORS
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"],
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
     credentials: true,
   },
 });
@@ -30,10 +50,7 @@ const cognitoISP = new AWS.CognitoIdentityServiceProvider({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
-app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true,
-}));
+
 app.use(express.json());
 app.use("/uploads", express.static(path.resolve("uploads")));
 
