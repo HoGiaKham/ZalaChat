@@ -697,9 +697,7 @@ const handleSetNickname = () => {
   });
   setMessages((prev) => [...prev, systemMessage]);
   messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  setShowNicknameModal(false);
-  setNickname("");
-  setShowSettingsModal(true);
+  setShowSettingsModal(true); // Only one call
 };
 
 
