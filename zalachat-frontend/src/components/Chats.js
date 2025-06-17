@@ -36,6 +36,7 @@ function Chats({ themes }) {
           `${process.env.REACT_APP_API_URL}/auth/user`,
           {
             headers: { Authorization: `Bearer ${tokens.accessToken}` },
+            timeout: 10000, // Thêm timeout để tránh treo
           }
         );
         setCurrentUser(response.data.username);
@@ -54,12 +55,13 @@ function Chats({ themes }) {
     try {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
       const response = await axios.get(
-        `${process.env.REACT_APP_API_URL}/contacts/friends`,
+        `${process.env.REACT_APP_API_URL}/api/contacts/friends`, // Sửa path cho đúng với route backend
         {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          timeout: 10000,
         }
       );
-      return response.data; // Trả về toàn bộ danh sách bạn bè
+      return response.data.friends || []; // Đảm bảo trả về mảng friends
     } catch (error) {
       console.error("Error fetching friends:", error);
       return [];
@@ -80,6 +82,7 @@ function Chats({ themes }) {
           `${process.env.REACT_APP_API_URL}/auth/user/${userId}`,
           {
             headers: { Authorization: `Bearer ${tokens.accessToken}` },
+            timeout: 10000,
           }
         );
         return response.data.username;
@@ -95,19 +98,17 @@ function Chats({ themes }) {
     if (!tokens?.accessToken) return Promise.reject("No access token");
 
     try {
-      // Lấy toàn bộ danh sách bạn bè
       const friends = await fetchFriends();
 
-      // Gọi API conversations để lấy danh sách cuộc trò chuyện hiện có
       const [convRes] = await Promise.all([
-        axios.get(`${process.env.REACT_APP_API_URL}/chats/conversations`, {
+        axios.get(`${process.env.REACT_APP_API_URL}/api/chats/conversations`, {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          timeout: 10000,
         }),
       ]);
 
-      const conversations = convRes.data; // Danh sách cuộc trò chuyện hiện có
+      const conversations = convRes.data || [];
 
-      // Kết hợp bạn bè và cuộc trò chuyện: hiển thị tất cả bạn bè, kể cả chưa chat
       const allConversations = await Promise.all(
         friends.map(async (friend) => {
           const existingConv = conversations.find(
@@ -116,13 +117,15 @@ function Chats({ themes }) {
 
           const conversationId = existingConv
             ? existingConv.conversationId
-            : `new-${friend.friendId}`; // Tạo ID tạm cho bạn bè chưa chat
+            : `new-${friend.friendId}`;
 
-          const friendName = localStorage.getItem(`nickname_${conversationId}`) || friend.friendName;
-          const theme = localStorage.getItem(`theme_${conversationId}`) || existingConv?.theme || "#3b82f6";
+          const friendName =
+            localStorage.getItem(`nickname_${conversationId}`) || friend.friendName || (await getFriendName(friend.friendId));
+          const theme =
+            localStorage.getItem(`theme_${conversationId}`) || existingConv?.theme || "#3b82f6";
 
           return {
-            ...existingConv, // Nếu đã có cuộc trò chuyện, giữ nguyên các field khác
+            ...existingConv,
             conversationId,
             friendId: friend.friendId,
             friendName,
@@ -131,7 +134,6 @@ function Chats({ themes }) {
         })
       );
 
-      // Sắp xếp theo thời gian tin nhắn cuối (nếu có)
       const savedOrder = JSON.parse(localStorage.getItem("conversationOrder")) || [];
       const orderedConversations = savedOrder.length
         ? savedOrder
@@ -141,12 +143,13 @@ function Chats({ themes }) {
 
       try {
         const lastMsgResponse = await axios.get(
-          `${process.env.REACT_APP_API_URL}/chats/last-messages`,
+          `${process.env.REACT_APP_API_URL}/api/chats/last-messages`,
           {
             headers: { Authorization: `Bearer ${tokens.accessToken}` },
+            timeout: 10000,
           }
         );
-        setLastMessages(lastMsgResponse.data);
+        setLastMessages(lastMsgResponse.data || {});
       } catch (error) {
         console.error("Error fetching last messages:", error);
       }
@@ -176,62 +179,56 @@ function Chats({ themes }) {
     return `${senderLabel}: ${msg.content.slice(0, 50)}`;
   };
 
-  const handleMessageSent = useCallback((conversationId, message) => {
-    setLastMessages((prev) => ({
-      ...prev,
-      [conversationId]: {
-        ...message,
-        senderId: currentUser,
-        timestamp: new Date().toISOString(),
-      },
-    }));
-    setConversations((prevConvs) => {
-      const updatedConvs = [...prevConvs];
-      const convIndex = updatedConvs.findIndex(
-        (conv) => conv.conversationId === conversationId
-      );
-      if (convIndex !== -1) {
-        const [conv] = updatedConvs.splice(convIndex, 1);
-        updatedConvs.unshift(conv);
-        localStorage.setItem(
-          "conversationOrder",
-          JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
+  const handleMessageSent = useCallback(
+    (conversationId, message) => {
+      setLastMessages((prev) => ({
+        ...prev,
+        [conversationId]: {
+          ...message,
+          senderId: currentUser,
+          timestamp: new Date().toISOString(),
+        },
+      }));
+      setConversations((prevConvs) => {
+        const updatedConvs = [...prevConvs];
+        const convIndex = updatedConvs.findIndex(
+          (conv) => conv.conversationId === conversationId
         );
-        return updatedConvs;
-      }
-      return prevConvs;
-    });
-  }, [currentUser]);
+        if (convIndex !== -1) {
+          const [conv] = updatedConvs.splice(convIndex, 1);
+          updatedConvs.unshift(conv);
+          localStorage.setItem(
+            "conversationOrder",
+            JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
+          );
+          return updatedConvs;
+        }
+        return prevConvs;
+      });
+    },
+    [currentUser]
+  );
 
   useEffect(() => {
-    if (
-      socketRef.current &&
-      selectedConversation &&
-      selectedConversation.conversationId
-    ) {
+    if (socketRef.current && selectedConversation?.conversationId) {
       socketRef.current.emit("joinConversation", {
         conversationId: selectedConversation.conversationId,
       });
       console.log("Joined conversation room (private):", selectedConversation.conversationId);
     }
-  }, [selectedConversation]);
+  }, [selectedConversation?.conversationId]);
 
   useEffect(() => {
     if (currentUser) {
       fetchConversations().then((convs) => {
         setConversations(convs);
-
         const savedConversationId = localStorage.getItem("selectedConversationId");
-        if (savedConversationId && convs) {
+        if (savedConversationId && convs.length > 0) {
           const savedConversation = convs.find(
             (conv) => conv.conversationId === savedConversationId
           );
-          if (savedConversation) {
-            setSelectedConversation(savedConversation);
-          } else if (convs.length > 0) {
-            setSelectedConversation(convs[0]);
-          }
-        } else if (convs && convs.length > 0) {
+          setSelectedConversation(savedConversation || convs[0]);
+        } else if (convs.length > 0) {
           setSelectedConversation(convs[0]);
         }
       });
@@ -243,7 +240,10 @@ function Chats({ themes }) {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
       socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
         auth: { token: tokens.accessToken },
-        transports: ["websocket", "polling"],
+        transports: ["websocket"], // Chỉ dùng websocket để tránh lỗi polling
+        reconnection: true, // Tự động kết nối lại khi mất kết nối
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
       });
 
       socketRef.current.on("connect", () => {
@@ -260,6 +260,7 @@ function Chats({ themes }) {
           selectedConversation &&
           message.conversationId === selectedConversation.conversationId
         ) {
+          // Xử lý trong ChatWindow nếu cần
         } else {
           setLastMessages((prev) => ({
             ...prev,
@@ -273,13 +274,20 @@ function Chats({ themes }) {
             if (convIndex !== -1) {
               const [conv] = updatedConvs.splice(convIndex, 1);
               updatedConvs.unshift(conv);
-              localStorage.setItem(
-                "conversationOrder",
-                JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
-              );
-              return updatedConvs;
+            } else {
+              const newConv = {
+                conversationId: message.conversationId,
+                friendId: message.senderId,
+                friendName:getFriendName(message.senderId),
+                theme: "#3b82f6",
+              };
+              updatedConvs.unshift(newConv);
             }
-            return prevConvs;
+            localStorage.setItem(
+              "conversationOrder",
+              JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
+            );
+            return updatedConvs;
           });
           setUnreadMessages((prev) => ({
             ...prev,
@@ -381,12 +389,52 @@ function Chats({ themes }) {
         }
       });
 
-      // Lắng nghe sự kiện cập nhật danh sách bạn bè
       socketRef.current.on("friendListUpdated", async (data) => {
-        console.log("Received friend list update:", data.friends);
-        const updatedFriends = data.friends;
-        const updatedConversations = await fetchConversations(); // Cập nhật lại danh sách conversations
-        setConversations(updatedConversations);
+        console.log("Received friend list update:", data);
+        const { userSub, action, friendSub } = data;
+        if (userSub === currentUser) {
+          const updatedFriends = await fetchFriends();
+          const updatedConversations = await Promise.all(
+            updatedFriends.map(async (friend) => {
+              const existingConv = conversations.find(
+                (conv) => conv.friendId === friend.friendId
+              );
+              const conversationId = existingConv
+                ? existingConv.conversationId
+                : `new-${friend.friendId}`;
+              const friendName =
+                localStorage.getItem(`nickname_${conversationId}`) || friend.friendName || (await getFriendName(friend.friendId));
+              const theme =
+                localStorage.getItem(`theme_${conversationId}`) || existingConv?.theme || "#3b82f6";
+
+              return {
+                ...existingConv,
+                conversationId,
+                friendId: friend.friendId,
+                friendName,
+                theme,
+              };
+            })
+          );
+
+          const savedOrder = JSON.parse(localStorage.getItem("conversationOrder")) || [];
+          const orderedConversations = savedOrder.length
+            ? savedOrder
+                .map((id) => updatedConversations.find((conv) => conv.conversationId === id))
+                .filter((conv) => conv !== undefined)
+            : updatedConversations;
+
+          setConversations(orderedConversations);
+          localStorage.setItem(
+            "conversationOrder",
+            JSON.stringify(orderedConversations.map((conv) => conv.conversationId))
+          );
+
+          // Cập nhật selectedConversation nếu cần
+          if (action === "remove" && selectedConversation?.friendId === friendSub) {
+            setSelectedConversation(orderedConversations.find((conv) => conv.friendId !== friendSub) || null);
+          }
+        }
       });
 
       socketRef.current.on("callRequest", (data) => {
@@ -394,19 +442,24 @@ function Chats({ themes }) {
           data.to === currentUser &&
           data.conversationId === selectedConversation?.conversationId
         ) {
+          // Xử lý trong ChatWindow nếu cần
         }
       });
 
       socketRef.current.on("callResponse", (data) => {
+        // Xử lý trong ChatWindow nếu cần
       });
 
       socketRef.current.on("offer", (data) => {
+        // Xử lý trong ChatWindow nếu cần
       });
 
       socketRef.current.on("answer", (data) => {
+        // Xử lý trong ChatWindow nếu cần
       });
 
       socketRef.current.on("candidate", (data) => {
+        // Xử lý trong ChatWindow nếu cần
       });
 
       return () => {
@@ -451,10 +504,7 @@ function Chats({ themes }) {
                       ...prev,
                       [conv.conversationId]: false,
                     }));
-                    localStorage.setItem(
-                      "selectedConversationId",
-                      conv.conversationId
-                    );
+                    localStorage.setItem("selectedConversationId", conv.conversationId);
                   }}
                 >
                   <div
@@ -466,15 +516,11 @@ function Chats({ themes }) {
                     {conv.friendName.charAt(0).toUpperCase()}
                   </div>
                   <div className="friendInfo">
-                    <span
-                      className={`friendName ${isUnread ? "unread" : ""}`}
-                    >
+                    <span className={`friendName ${isUnread ? "unread" : ""}`}>
                       {conv.friendName}
                     </span>
                     {lastMessage && (
-                      <span
-                        className={`lastMessage ${isUnread ? "unread" : ""}`}
-                      >
+                      <span className={`lastMessage ${isUnread ? "unread" : ""}`}>
                         {messagePreview}
                       </span>
                     )}

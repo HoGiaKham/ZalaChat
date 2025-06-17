@@ -19,13 +19,17 @@ function Contacts() {
     const fetchFriends = async () => {
       try {
         setLoading(true);
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/contacts/friends`, {
+        const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/contacts/friends`, {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          timeout: 10000,
         });
-        setFriends(response.data);
+        setFriends(response.data.friends || []);
       } catch (error) {
-        console.error("Lỗi khi lấy danh sách bạn bè:", error);
-        alert(error.response?.data?.error || "Không thể lấy danh sách bạn bè");
+        console.error("Lỗi khi lấy danh sách bạn bè:", error.response?.data || error.message);
+        alert(
+          error.response?.data?.error ||
+          "Không thể lấy danh sách bạn bè. Vui lòng kiểm tra kết nối hoặc đăng nhập lại."
+        );
       } finally {
         setLoading(false);
       }
@@ -34,13 +38,14 @@ function Contacts() {
     const fetchFriendRequests = async () => {
       try {
         setLoading(true);
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/contacts/friend-requests`, {
+        const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/contacts/friend-requests`, {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          timeout: 10000,
         });
-        setFriendRequests(response.data);
+        setFriendRequests(response.data || []);
       } catch (error) {
-        console.error("Lỗi khi lấy lời mời kết bạn:", error);
-        alert(error.response?.data?.error || "Không thể lấy lời mời kết bạn");
+        console.error("Lỗi khi lấy lời mời kết bạn:", error.response?.data || error.message);
+        alert(error.response?.data?.error || "Không thể lấy lời mời kết bạn.");
       } finally {
         setLoading(false);
       }
@@ -51,16 +56,20 @@ function Contacts() {
 
     socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
       auth: { token: tokens.accessToken },
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     socketRef.current.on("receiveFriendRequest", () => {
       console.log("Nhận được lời mời kết bạn mới!");
-      fetchFriendRequests(); 
+      fetchFriendRequests();
     });
 
     socketRef.current.on("friendRequestAcceptedClient", (friendInfo) => {
       console.log("Yêu cầu kết bạn của bạn đã được chấp nhận!", friendInfo);
-      fetchFriends(); 
+      fetchFriends();
     });
 
     socketRef.current.on("friendRequestRejectedClient", (receiverId) => {
@@ -72,12 +81,10 @@ function Contacts() {
       setFriends((prev) => prev.filter((friend) => friend.friendId !== friendId));
     });
 
-    // Cập nhật khi có bạn bè mới
     socketRef.current.on("friendAdded", (newFriend) => {
       console.log("Có bạn bè mới:", newFriend);
       setFriends((prev) => [...prev, newFriend]);
       setFriendRequests((prev) => prev.filter((req) => req.senderId !== newFriend.friendId));
-      // Phát event để Chats.js nhận và cập nhật
       socketRef.current.emit("friendListUpdated", { friends: [...friends, newFriend] });
     });
 
@@ -86,7 +93,7 @@ function Contacts() {
         socketRef.current.disconnect();
       }
     };
-  }, [friends]); // Thêm friends vào dependency để re-fetch khi có thay đổi
+  }, []); // Xóa dependency [friends] để tránh re-render vô hạn
 
   const validateToken = () => {
     const tokens = JSON.parse(localStorage.getItem("tokens"));
@@ -107,11 +114,18 @@ function Contacts() {
 
     try {
       setLoading(true);
-      await axios.post(
-        `${process.env.REACT_APP_API_URL}/contacts/send-friend-request`,
+      const response = await axios.post(
+        `${process.env.REACT_APP_API_URL}/api/contacts/send-friend-request`,
         { receiverEmail: emailInput },
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+        { headers: { Authorization: `Bearer ${tokens.accessToken}` }, timeout: 10000 }
       );
+      const newFriend = {
+        friendId: response.data.friendId,
+        friendName: response.data.friendName || emailInput,
+      };
+      const updatedFriends = [...friends, newFriend];
+      setFriends(updatedFriends);
+      socketRef.current.emit("friendListUpdated", { friends: updatedFriends });
       alert("Yêu cầu kết bạn đã được gửi!");
       setEmailInput("");
     } catch (error) {
@@ -128,12 +142,18 @@ function Contacts() {
 
     try {
       setLoading(true);
-      await axios.post(
-        `${process.env.REACT_APP_API_URL}/contacts/accept-friend-request`,
+      const response = await axios.post(
+        `${process.env.REACT_APP_API_URL}/api/contacts/accept-friend-request`,
         { requestId },
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+        { headers: { Authorization: `Bearer ${tokens.accessToken}` }, timeout: 10000 }
       );
       setFriendRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+      const updatedFriends = [
+        ...friends,
+        { friendId: senderId, friendName: response.data.friendName || senderId },
+      ];
+      setFriends(updatedFriends);
+      socketRef.current.emit("friendListUpdated", { friends: updatedFriends });
       alert("Đã chấp nhận lời mời kết bạn!");
     } catch (error) {
       console.error("Lỗi khi chấp nhận lời mời:", error);
@@ -150,9 +170,9 @@ function Contacts() {
     try {
       setLoading(true);
       await axios.post(
-        `${process.env.REACT_APP_API_URL}/contacts/reject-friend-request`,
+        `${process.env.REACT_APP_API_URL}/api/contacts/reject-friend-request`,
         { requestId },
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+        { headers: { Authorization: `Bearer ${tokens.accessToken}` }, timeout: 10000 }
       );
       setFriendRequests((prev) => prev.filter((req) => req.requestId !== requestId));
       alert("Đã từ chối lời mời kết bạn!");
@@ -171,12 +191,13 @@ function Contacts() {
     try {
       setLoading(true);
       await axios.post(
-        `${process.env.REACT_APP_API_URL}/contacts/remove-friend`,
+        `${process.env.REACT_APP_API_URL}/api/contacts/remove-friend`,
         { friendId },
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+        { headers: { Authorization: `Bearer ${tokens.accessToken}` }, timeout: 10000 }
       );
-      setFriends((prev) => prev.filter((friend) => friend.friendId !== friendId));
-      socketRef.current.emit("friendListUpdated", { friends: friends.filter((f) => f.friendId !== friendId) });
+      const updatedFriends = friends.filter((friend) => friend.friendId !== friendId);
+      setFriends(updatedFriends);
+      socketRef.current.emit("friendListUpdated", { friends: updatedFriends });
       alert("Đã hủy kết bạn!");
     } catch (error) {
       console.error("Lỗi khi hủy kết bạn:", error);
