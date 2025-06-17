@@ -85,10 +85,10 @@ useEffect(() => {
         );
       }
     });
-socketRef.current.on("messageReacted", ({ conversationId, messageId, reaction }) => {
+socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction }) => {
   setMessages((prev) =>
     prev.map((msg) =>
-      msg.messageId === messageId ? { ...msg, reaction } : msg
+      msg.timestamp === timestamp ? { ...msg, reaction } : msg
     )
   );
 });
@@ -267,34 +267,42 @@ socketRef.current.on("messageReacted", ({ conversationId, messageId, reaction })
   }, [callState, callStartTime]);
 
   const fetchMessages = async () => {
-    if (!selectedConversation) return;
-    try {
-      const tokens = JSON.parse(localStorage.getItem("tokens"));
-      const response = await axios.get(
-        `${process.env.REACT_APP_API_URL}/chats/messages/${selectedConversation.conversationId}`,
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
-      );
-      setMessages(response.data);
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    } catch (error) {
-      console.error("Error fetching messages:", error);
+  if (!selectedConversation) return;
+  try {
+    const tokens = JSON.parse(localStorage.getItem("tokens"));
+    const response = await axios.get(
+      `${process.env.REACT_APP_API_URL}/chats/messages/${selectedConversation.conversationId}`,
+      { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+    );
+    setMessages(response.data);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  } catch (error) {
+    console.error("Error fetching messages:", error);
+    if (error.response?.status === 401) {
+      toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+    } else {
       toast.error("Không thể tải tin nhắn");
     }
-  };
+  }
+};
 
-  const fetchUserProfile = async (userId) => {
-    try {
-      const tokens = JSON.parse(localStorage.getItem("tokens"));
-      const response = await axios.get(
-        `${process.env.REACT_APP_API_URL}/auth/user/${userId}`,
-        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
-      );
-      setProfile(response.data);
-    } catch (error) {
-      console.error("Error fetching user profile:", error);
+const fetchUserProfile = async (userId) => {
+  try {
+    const tokens = JSON.parse(localStorage.getItem("tokens"));
+    const response = await axios.get(
+      `${process.env.REACT_APP_API_URL}/auth/user/${userId}`,
+      { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+    );
+    setProfile(response.data);
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    if (error.response?.status === 401) {
+      toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+    } else {
       toast.error("Không thể tải thông tin cá nhân");
     }
-  };
+  }
+};
 
   const handleStartCall = async (type) => {
     if (!selectedConversation || callState || peerConnection) return;
@@ -386,13 +394,14 @@ const handleSendMessage = async () => {
         type: file.type,
         size: file.size,
       });
+      const tokens = JSON.parse(localStorage.getItem("tokens"));
       const response = await axios.post(
         `${process.env.REACT_APP_API_URL}/upload`,
         formData,
         {
           headers: {
             "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
+            Authorization: `Bearer ${tokens.accessToken}`,
           },
         }
       );
@@ -400,7 +409,11 @@ const handleSendMessage = async () => {
       messageType = getFileType(file.name);
     } catch (error) {
       console.error("Lỗi khi tải file:", error.response?.data || error.message);
-      toast.error(error.response?.data?.message || "Không thể tải file lên. Vui lòng thử lại.");
+      if (error.response?.status === 401) {
+        toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+      } else {
+        toast.error(error.response?.data?.message || "Không thể tải file lên. Vui lòng thử lại.");
+      }
       return;
     }
   } else if (audioBlob) {
@@ -422,13 +435,14 @@ const handleSendMessage = async () => {
         type: audioFile.type,
         size: audioFile.size,
       });
+      const tokens = JSON.parse(localStorage.getItem("tokens"));
       const response = await axios.post(
         `${process.env.REACT_APP_API_URL}/upload`,
         formData,
         {
           headers: {
             "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
+            Authorization: `Bearer ${tokens.accessToken}`,
           },
           timeout: 10000,
         }
@@ -437,11 +451,15 @@ const handleSendMessage = async () => {
       messageType = "audio";
     } catch (error) {
       console.error("Lỗi khi tải tin nhắn thoại:", error.response?.data || error.message);
-      toast.error(
-        error.response?.data?.message?.includes("Bucket")
-          ? "Lỗi máy chủ khi tải tin nhắn thoại. Vui lòng liên hệ hỗ trợ."
-          : error.response?.data?.message || "Không thể tải tin nhắn thoại. Vui lòng thử lại."
-      );
+      if (error.response?.status === 401) {
+        toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+      } else {
+        toast.error(
+          error.response?.data?.message?.includes("Bucket")
+            ? "Lỗi máy chủ khi tải tin nhắn thoại. Vui lòng liên hệ hỗ trợ."
+            : error.response?.data?.message || "Không thể tải tin nhắn thoại. Vui lòng thử lại."
+        );
+      }
       setAudioBlob(null);
       setAudioPreviewUrl(null);
       setIsRecording(false);
@@ -769,7 +787,7 @@ const handleReact = (messageId) => {
   setShowReactionModal(messageId);
 };
 
-  const handleSendReaction = (reaction) => {
+const handleSendReaction = (reaction) => {
   if (showReactionModal) {
     const message = messages.find((msg) => msg.messageId === showReactionModal);
     if (message) {
@@ -777,7 +795,7 @@ const handleReact = (messageId) => {
         const updatedMessage = { ...message, reaction: null };
         socketRef.current.emit("reactMessage", {
           conversationId: selectedConversation.conversationId,
-          messageId: showReactionModal,
+          timestamp: message.timestamp,
           reaction: null,
         });
         setMessages((prev) =>
@@ -789,7 +807,7 @@ const handleReact = (messageId) => {
         const updatedMessage = { ...message, reaction };
         socketRef.current.emit("reactMessage", {
           conversationId: selectedConversation.conversationId,
-          messageId: showReactionModal,
+          timestamp: message.timestamp,
           reaction,
         });
         setMessages((prev) =>
