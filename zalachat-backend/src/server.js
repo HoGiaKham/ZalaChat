@@ -193,16 +193,35 @@ io.on("connection", (socket) => {
       console.error("Error deleting message:", error.message);
     }
   });
-socket.on("nicknameChanged", (data) => {
+socket.on("nicknameChanged", async (data, callback) => {
   if (!data.conversationId || !data.newNickname) {
     console.error("Invalid nicknameChanged data:", data);
+    if (callback) callback({ success: false, error: "Dữ liệu không hợp lệ" });
     return;
   }
-  console.log(`Nickname changed in conversation ${data.conversationId} to ${data.newNickname} by ${socket.user.sub}`);
-  io.to(data.conversationId).emit("nicknameChanged", {
-    conversationId: data.conversationId,
-    newNickname: data.newNickname,
-  });
+
+  try {
+    // Lưu nickname vào DynamoDB (bảng conversations hoặc metadata)
+    await dynamoDBClient.send(
+      new UpdateCommand({
+        TableName: process.env.DYNAMODB_TABLE_CONVERSATIONS, // Giả sử có bảng này
+        Key: { conversationId: data.conversationId },
+        UpdateExpression: "set #nickname = :nickname",
+        ExpressionAttributeNames: { "#nickname": "friendName" }, // Tùy thuộc vào schema
+        ExpressionAttributeValues: { ":nickname": data.newNickname },
+      })
+    );
+
+    console.log(`Nickname changed in conversation ${data.conversationId} to ${data.newNickname} by ${socket.user.sub}`);
+    io.to(data.conversationId).emit("nicknameChanged", {
+      conversationId: data.conversationId,
+      newNickname: data.newNickname,
+    });
+    if (callback) callback({ success: true });
+  } catch (error) {
+    console.error("Error updating nickname:", error.message);
+    if (callback) callback({ success: false, error: "Lỗi server" });
+  }
 });
   socket.on("forwardMessage", async ({ conversationId, newConversationId, content, type, forwardedFrom }) => {
     try {
