@@ -89,61 +89,83 @@ function Chats({ themes }) {
     })());
   };
 
-  const fetchConversations = async () => {
-    const tokens = JSON.parse(localStorage.getItem("tokens"));
-    if (!tokens?.accessToken) return Promise.reject("No access token");
+const fetchConversations = async () => {
+  const tokens = JSON.parse(localStorage.getItem("tokens"));
+  if (!tokens?.accessToken) return Promise.reject("No access token");
 
+  try {
+    // Gọi 2 API: friends + conversations
+    const [friendsRes, convRes] = await Promise.all([
+      axios.get(`${process.env.REACT_APP_API_URL}/contacts/friends`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      }),
+      axios.get(`${process.env.REACT_APP_API_URL}/chats/conversations`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      }),
+    ]);
+
+    const friends = friendsRes.data;         // Danh sách tất cả bạn bè
+    const conversations = convRes.data;      // Danh sách đã có tin nhắn
+
+    // Kết hợp lại: nếu bạn bè chưa có conversation thì thêm vào danh sách
+    const allConversations = await Promise.all(
+      friends.map(async (friend) => {
+        const existingConv = conversations.find(
+          (conv) => conv.friendId === friend.friendId
+        );
+
+        const conversationId = existingConv
+          ? existingConv.conversationId
+          : `new-${friend.friendId}`; // ID tạm cho bạn bè chưa chat
+
+        const friendName = localStorage.getItem(`nickname_${conversationId}`) || friend.friendName;
+        const theme = localStorage.getItem(`theme_${conversationId}`) || existingConv?.theme || "#3b82f6";
+
+        return {
+          ...existingConv, // nếu đã có thì giữ nguyên các field khác
+          conversationId,
+          friendId: friend.friendId,
+          friendName,
+          theme,
+        };
+      })
+    );
+
+    // Giữ nguyên logic sắp xếp conversation
+    const savedOrder = JSON.parse(localStorage.getItem("conversationOrder")) || [];
+    const orderedConversations = savedOrder.length
+      ? savedOrder
+          .map((id) => allConversations.find((conv) => conv.conversationId === id))
+          .filter((conv) => conv !== undefined)
+      : allConversations;
+
+    // Gọi last-messages như cũ
     try {
-      const convResponse = await axios.get(
-        `${process.env.REACT_APP_API_URL}/chats/conversations`,
+      const lastMsgResponse = await axios.get(
+        `${process.env.REACT_APP_API_URL}/chats/last-messages`,
         {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
         }
       );
-
-      const updatedConversations = await Promise.all(
-        convResponse.data.map(async (conv) => {
-          const friendName = await getFriendName(conv.friendId);
-          return {
-            ...conv,
-            theme: localStorage.getItem(`theme_${conv.conversationId}`) || conv.theme || "#3b82f6",
-            friendName: localStorage.getItem(`nickname_${conv.conversationId}`) || friendName,
-          };
-        })
-      );
-
-      const savedOrder = JSON.parse(localStorage.getItem("conversationOrder")) || [];
-
-      const orderedConversations = savedOrder.length
-        ? savedOrder
-            .map((id) => updatedConversations.find((conv) => conv.conversationId === id))
-            .filter((conv) => conv !== undefined)
-        : updatedConversations;
-
-      try {
-        const lastMsgResponse = await axios.get(
-          `${process.env.REACT_APP_API_URL}/chats/last-messages`,
-          {
-            headers: { Authorization: `Bearer ${tokens.accessToken}` },
-          }
-        );
-        setLastMessages(lastMsgResponse.data);
-      } catch (error) {
-        console.error("Error fetching last messages:", error);
-      }
-
-      localStorage.setItem(
-        "conversationOrder",
-        JSON.stringify(orderedConversations.map((conv) => conv.conversationId))
-      );
-
-      setConversations(orderedConversations);
-      return orderedConversations;
+      setLastMessages(lastMsgResponse.data);
     } catch (error) {
-      console.error("Error fetching conversations:", error);
-      return Promise.reject(error);
+      console.error("Error fetching last messages:", error);
     }
-  };
+
+    // Cập nhật localStorage và set state
+    localStorage.setItem(
+      "conversationOrder",
+      JSON.stringify(orderedConversations.map((conv) => conv.conversationId))
+    );
+
+    setConversations(orderedConversations);
+    return orderedConversations;
+  } catch (error) {
+    console.error("Error fetching conversations:", error);
+    return Promise.reject(error);
+  }
+};
+
 
   const getMessagePreview = (msg, senderId, currentUser) => {
     if (!msg) return "";
