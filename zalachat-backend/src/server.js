@@ -13,6 +13,9 @@ import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
