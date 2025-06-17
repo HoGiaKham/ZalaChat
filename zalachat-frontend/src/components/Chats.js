@@ -66,6 +66,7 @@ function Chats({ themes }) {
       return friendMap;
     } catch (error) {
       console.error("Error fetching friends:", error);
+      toast.error("Không thể tải danh sách bạn bè");
       return {};
     }
   };
@@ -91,7 +92,10 @@ function Chats({ themes }) {
 
   const fetchConversations = async () => {
     const tokens = JSON.parse(localStorage.getItem("tokens"));
-    if (!tokens?.accessToken) return Promise.reject("No access token");
+    if (!tokens?.accessToken) {
+      toast.error("Không có token truy cập");
+      return Promise.reject("No access token");
+    }
 
     try {
       const convResponse = await axios.get(
@@ -130,6 +134,7 @@ function Chats({ themes }) {
         setLastMessages(lastMsgResponse.data);
       } catch (error) {
         console.error("Error fetching last messages:", error);
+        toast.error("Không thể tải tin nhắn cuối cùng");
       }
 
       localStorage.setItem(
@@ -141,6 +146,7 @@ function Chats({ themes }) {
       return orderedConversations;
     } catch (error) {
       console.error("Error fetching conversations:", error);
+      toast.error("Không thể tải danh sách cuộc trò chuyện");
       return Promise.reject(error);
     }
   };
@@ -163,7 +169,7 @@ function Chats({ themes }) {
       [conversationId]: {
         ...message,
         senderId: currentUser,
-        timestamp: new Date().toISOString(),
+        timestamp: message.timestamp,
       },
     }));
     setConversations((prevConvs) => {
@@ -202,6 +208,8 @@ function Chats({ themes }) {
         } else if (convs && convs.length > 0) {
           setSelectedConversation(convs[0]);
         }
+      }).catch(() => {
+        toast.error("Không thể tải cuộc trò chuyện");
       });
     }
   }, [currentUser]);
@@ -209,42 +217,54 @@ function Chats({ themes }) {
   useEffect(() => {
     if (currentUser) {
       const tokens = JSON.parse(localStorage.getItem("tokens"));
-socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
-  auth: { token: tokens.accessToken },
-  transports: ["polling", "websocket"],
+      socketRef.current = io("http://localhost:5000", {
+        auth: { token: tokens.accessToken },
+        transports: ["websocket"],
       });
 
       socketRef.current.on("connect", () => {
         console.log("Socket.IO connected with ID:", socketRef.current.id);
+        toast.success("Đã kết nối với server chat");
+      });
+
+      socketRef.current.on("connect_error", (error) => {
+        console.error("Socket.IO connection error:", error.message);
+        toast.error("Mất kết nối với server. Vui lòng kiểm tra mạng!");
       });
 
       socketRef.current.on("receiveMessage", async (message) => {
         if (message.senderId === currentUser) return;
-        if (
-          selectedConversation &&
-          message.conversationId === selectedConversation.conversationId
-        ) {
-        } else {
-          setLastMessages((prev) => ({
-            ...prev,
-            [message.conversationId]: message,
-          }));
-          setConversations((prevConvs) => {
-            const updatedConvs = [...prevConvs];
-            const convIndex = updatedConvs.findIndex(
-              (conv) => conv.conversationId === message.conversationId
+        const conversation = conversations.find(
+          (conv) => conv.conversationId === message.conversationId
+        );
+        if (!conversation) return;
+
+        setLastMessages((prev) => ({
+          ...prev,
+          [message.conversationId]: message,
+        }));
+
+        setConversations((prevConvs) => {
+          const updatedConvs = [...prevConvs];
+          const convIndex = updatedConvs.findIndex(
+            (conv) => conv.conversationId === message.conversationId
+          );
+          if (convIndex !== -1) {
+            const [conv] = updatedConvs.splice(convIndex, 1);
+            updatedConvs.unshift(conv);
+            localStorage.setItem(
+              "conversationOrder",
+              JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
             );
-            if (convIndex !== -1) {
-              const [conv] = updatedConvs.splice(convIndex, 1);
-              updatedConvs.unshift(conv);
-              localStorage.setItem(
-                "conversationOrder",
-                JSON.stringify(updatedConvs.map((conv) => conv.conversationId))
-              );
-              return updatedConvs;
-            }
-            return prevConvs;
-          });
+            return updatedConvs;
+          }
+          return prevConvs;
+        });
+
+        if (
+          !selectedConversation ||
+          message.conversationId !== selectedConversation.conversationId
+        ) {
           setUnreadMessages((prev) => ({
             ...prev,
             [message.conversationId]: true,
@@ -264,6 +284,10 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
                     ...prev,
                     [message.conversationId]: false,
                   }));
+                  socketRef.current.emit("markAsRead", {
+                    conversationId: message.conversationId,
+                    userId: currentUser,
+                  });
                 }
               },
             }
@@ -272,27 +296,25 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
       });
 
       socketRef.current.on("messageRecalled", (data) => {
-        if (
-          selectedConversation &&
-          data.conversationId === selectedConversation.conversationId
-        ) {
-          setLastMessages((prev) => ({
-            ...prev,
-            [data.conversationId]: { ...prev[data.conversationId], type: "recalled" },
-          }));
-        }
+        setLastMessages((prev) => ({
+          ...prev,
+          [data.conversationId]: {
+            ...prev[data.conversationId],
+            type: "recalled",
+            content: "Tin nhắn đã được thu hồi",
+          },
+        }));
       });
 
       socketRef.current.on("messageDeleted", (data) => {
-        if (
-          selectedConversation &&
-          data.conversationId === selectedConversation.conversationId
-        ) {
-          setLastMessages((prev) => ({
-            ...prev,
-            [data.conversationId]: { ...prev[data.conversationId], status: "deleted" },
-          }));
-        }
+        setLastMessages((prev) => ({
+          ...prev,
+          [data.conversationId]: {
+            ...prev[data.conversationId],
+            status: "deleted",
+            content: "Tin nhắn đã bị xóa",
+          },
+        }));
       });
 
       socketRef.current.on("themeChanged", (data) => {
@@ -319,14 +341,14 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
       });
 
       socketRef.current.on("nicknameChanged", (data) => {
-        console.log("Nickname changed event received:", data); // Debug log
+        console.log("Nickname changed event received:", data);
         setConversations((prev) => {
           const updatedConvs = prev.map((conv) =>
             conv.conversationId === data.conversationId
               ? { ...conv, friendName: data.newNickname }
               : conv
           );
-          return updatedConvs; // Chỉ cập nhật, không cần sắp xếp lại
+          return updatedConvs;
         });
         if (
           selectedConversation &&
@@ -345,26 +367,30 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
           data.to === currentUser &&
           data.conversationId === selectedConversation?.conversationId
         ) {
+          // Handle incoming call (already handled in ChatWindow.js)
         }
       });
 
       socketRef.current.on("callResponse", (data) => {
-      });
-
-      socketRef.current.on("offer", (data) => {
-      });
-
-      socketRef.current.on("answer", (data) => {
-      });
-
-      socketRef.current.on("candidate", (data) => {
+        // Handle call response (already handled in ChatWindow.js)
       });
 
       return () => {
-        if (socketRef.current) socketRef.current.disconnect();
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current.off("connect");
+          socketRef.current.off("connect_error");
+          socketRef.current.off("receiveMessage");
+          socketRef.current.off("messageRecalled");
+          socketRef.current.off("messageDeleted");
+          socketRef.current.off("themeChanged");
+          socketRef.current.off("nicknameChanged");
+          socketRef.current.off("callRequest");
+          socketRef.current.off("callResponse");
+        }
       };
     }
-  }, [currentUser, selectedConversation]);
+  }, [currentUser, selectedConversation, conversations]);
 
   const handleOpenSettingsModal = () => {
     setIsSettingsModalOpen(true);
@@ -373,6 +399,19 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
   const handleCloseSettingsModal = () => {
     setIsSettingsModalOpen(false);
   };
+
+  useEffect(() => {
+    if (selectedConversation && socketRef.current) {
+      setUnreadMessages((prev) => ({
+        ...prev,
+        [selectedConversation.conversationId]: false,
+      }));
+      socketRef.current.emit("markAsRead", {
+        conversationId: selectedConversation.conversationId,
+        userId: currentUser,
+      });
+    }
+  }, [selectedConversation, currentUser]);
 
   return (
     <div className="container">
@@ -406,6 +445,10 @@ socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
                       "selectedConversationId",
                       conv.conversationId
                     );
+                    socketRef.current.emit("markAsRead", {
+                      conversationId: conv.conversationId,
+                      userId: currentUser,
+                    });
                   }}
                 >
                   <div

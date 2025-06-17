@@ -104,7 +104,11 @@
   margin-top: 24px;
   font-style: italic;
 }
-
+.readReceipt {
+  color: #22c55e;
+  margin-left: 5px;
+  font-size: 12px;
+}
 .chatArea {
   flex: 1;
   display: flex;

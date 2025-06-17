@@ -4,6 +4,7 @@ import EmojiPicker from "emoji-picker-react";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import "./Chats.css";
+import { v4 as uuidv4 } from "uuid";
 
 function ChatWindow({
   selectedConversation,
@@ -54,76 +55,119 @@ function ChatWindow({
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  useEffect(() => {
-    if (selectedConversation && socketRef.current) {
-      socketRef.current.emit("joinConversation", {
-        conversationId: selectedConversation.conversationId,
-      });
-
-      socketRef.current.on("receiveMessage", (message) => {
-        setMessages((prev) => [...prev, message]);
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
-
-      socketRef.current.on("messageSent", (response) => {
-        if (response.error) {
-          toast.error(response.error);
-          setMessages((prev) =>
-            prev.filter((msg) => msg.timestamp !== response.timestamp)
-          );
-        }
-      });
-
-      socketRef.current.on("error", (error) => {
-        toast.error(error.message || "Đã xảy ra lỗi");
-      });
-
-      fetchMessages();
-      fetchUserProfile(selectedConversation.friendId);
-      setShowSearchBar(false);
-      setSearchQuery("");
-
-      return () => {
-        if (socketRef.current) {
-          socketRef.current.off("receiveMessage");
-          socketRef.current.off("messageSent");
-          socketRef.current.off("error");
-        }
-      };
-    }
-  }, [selectedConversation, socketRef]);
 useEffect(() => {
-  if (socketRef.current) {
-    // Đảm bảo socket đã được khởi tạo
-    socketRef.current.on("connect", () => {
-      console.log("Socket connected:", socketRef.current.id);
+  if (selectedConversation && socketRef.current) {
+    socketRef.current.emit("joinConversation", {
+      conversationId: selectedConversation.conversationId,
     });
 
-    socketRef.current.on("disconnect", () => {
-      console.log("Socket disconnected");
+    socketRef.current.on("receiveMessage", (message) => {
+      setMessages((prev) => [...prev, message]);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (message.senderId !== currentUser && message.senderId !== "system") {
+        toast.info(`Tin nhắn mới từ ${selectedConversation.friendName}`);
+      }
     });
 
-    socketRef.current.on("connect_error", (error) => {
-      console.error("Connection error:", error.message);
+    socketRef.current.on("lastMessageUpdated", ({ conversationId, lastMessage }) => {
+      if (conversationId === selectedConversation.conversationId && onMessageSent) {
+        onMessageSent(conversationId, lastMessage);
+      }
     });
 
-    // Thử emit joinConversation nếu chưa join
-    if (selectedConversation) {
-      socketRef.current.emit("joinConversation", {
-        conversationId: selectedConversation.conversationId,
-      });
-    }
+    socketRef.current.on("messagesRead", ({ conversationId, userId }) => {
+      if (conversationId === selectedConversation.conversationId && userId !== currentUser) {
+        setMessages((prev) =>
+          prev.map((msg) => ({
+            ...msg,
+            readBy: [...(msg.readBy || []), userId],
+          }))
+        );
+      }
+    });
+socketRef.current.on("messageReacted", ({ conversationId, messageId, reaction }) => {
+  setMessages((prev) =>
+    prev.map((msg) =>
+      msg.messageId === messageId ? { ...msg, reaction } : msg
+    )
+  );
+});
+    socketRef.current.on("themeChanged", ({ conversationId, newTheme, from }) => {
+      if (conversationId === selectedConversation.conversationId && from !== currentUser) {
+        localStorage.setItem(`theme_${conversationId}`, newTheme);
+        setSelectedConversation((prev) => ({ ...prev, theme: newTheme }));
+      }
+    });
 
-    // Cleanup khi unmount
+    socketRef.current.on("nicknameChanged", ({ conversationId, newNickname }) => {
+      if (conversationId === selectedConversation.conversationId) {
+        localStorage.setItem(`nickname_${conversationId}`, newNickname);
+        setSelectedConversation((prev) => ({ ...prev, friendName: newNickname }));
+      }
+    });
+
+    socketRef.current.on("messageSent", (response) => {
+      if (response.error) {
+        toast.error(response.error);
+        setMessages((prev) =>
+          prev.filter((msg) => msg.messageId !== response.messageId)
+        );
+      } else {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.messageId === response.messageId ? { ...msg, status: "sent" } : msg
+          )
+        );
+      }
+    });
+
+    socketRef.current.on("error", (error) => {
+      toast.error(error.message || "Đã xảy ra lỗi");
+    });
+
+    socketRef.current.on("messageRecalled", ({ conversationId, timestamp }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.timestamp === timestamp ? { ...msg, type: "recalled", status: "recalled" } : msg
+        )
+      );
+    });
+
+    socketRef.current.on("messageDeleted", ({ conversationId, timestamp }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.timestamp === timestamp ? { ...msg, status: "deleted" } : msg
+        )
+      );
+    });
+
+    fetchMessages();
+    fetchUserProfile(selectedConversation.friendId);
+    setShowSearchBar(false);
+    setSearchQuery("");
+
+    // Mark messages as read when conversation is opened
+    socketRef.current.emit("markAsRead", {
+      conversationId: selectedConversation.conversationId,
+      userId: currentUser,
+    });
+
     return () => {
-      socketRef.current.off("connect");
-      socketRef.current.off("disconnect");
-      socketRef.current.off("connect_error");
+      if (socketRef.current) {
+        socketRef.current.off("receiveMessage");
+        socketRef.current.off("lastMessageUpdated");
+        socketRef.current.off("messagesRead");
+        socketRef.current.off("themeChanged");
+        socketRef.current.off("nicknameChanged");
+        socketRef.current.off("messageSent");
+        socketRef.current.off("error");
+        socketRef.current.off("messageRecalled");
+        socketRef.current.off("messageDeleted");
+      }
     };
-  } else {
-    console.error("socketRef.current is not initialized");
   }
-}, [socketRef, selectedConversation]); // Phụ thuộc vào socketRef và selectedConversation
+}, [selectedConversation, socketRef, currentUser, onMessageSent]);
+
   useEffect(() => {
     if (isRecording) {
       recordingTimerRef.current = setInterval(() => {
@@ -135,31 +179,6 @@ useEffect(() => {
     }
     return () => clearInterval(recordingTimerRef.current);
   }, [isRecording]);
-
-useEffect(() => {
-  socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
-    auth: {
-      token: JSON.parse(localStorage.getItem("tokens"))?.accessToken,
-    },
-    withCredentials: true,
-  });
-
-  socketRef.current.on("connect", () => {
-    console.log("Socket connected:", socketRef.current.id);
-  });
-
-  socketRef.current.on("disconnect", () => {
-    console.log("Socket disconnected");
-  });
-
-  socketRef.current.on("connect_error", (error) => {
-    console.error("Connection error:", error.message);
-  });
-
-  return () => {
-    socketRef.current.disconnect();
-  };
-}, []);
 
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
@@ -247,22 +266,21 @@ useEffect(() => {
     };
   }, [callState, callStartTime]);
 
-const fetchMessages = async () => {
-  if (!selectedConversation) return;
-  try {
-    const tokens = JSON.parse(localStorage.getItem("tokens"));
-    const response = await axios.get(
-      `${process.env.REACT_APP_API_URL}/chats/messages/${selectedConversation.conversationId}`,
-      { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
-    );
-    console.log("Fetched messages:", response.data); // Add this line
-    setMessages(response.data);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  } catch (error) {
-    console.error("Error fetching messages:", error);
-    toast.error("Không thể tải tin nhắn");
-  }
-};
+  const fetchMessages = async () => {
+    if (!selectedConversation) return;
+    try {
+      const tokens = JSON.parse(localStorage.getItem("tokens"));
+      const response = await axios.get(
+        `${process.env.REACT_APP_API_URL}/chats/messages/${selectedConversation.conversationId}`,
+        { headers: { Authorization: `Bearer ${tokens.accessToken}` } }
+      );
+      setMessages(response.data);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      toast.error("Không thể tải tin nhắn");
+    }
+  };
 
   const fetchUserProfile = async (userId) => {
     try {
@@ -353,15 +371,8 @@ const fetchMessages = async () => {
     cleanupCall(peerConnection);
   };
 
- const handleSendMessage = async () => {
-  if (!selectedConversation || !socketRef.current?.connected) {
-    console.log("Cannot send: No conversation or socket not connected", {
-      selectedConversation,
-      connected: socketRef.current?.connected,
-    });
-    toast.error("Không thể gửi tin nhắn. Kiểm tra kết nối.");
-    return;
-  }
+const handleSendMessage = async () => {
+  if (!selectedConversation || !socketRef.current?.connected) return;
 
   let messageContent = newMessage.trim();
   let messageType = "text";
@@ -440,8 +451,10 @@ const fetchMessages = async () => {
     return;
   }
 
+  const messageId = uuidv4();
   const message = {
     conversationId: selectedConversation.conversationId,
+    messageId,
     senderId: currentUser,
     receiverId: selectedConversation.friendId,
     content: messageContent,
@@ -449,17 +462,16 @@ const fetchMessages = async () => {
     timestamp: new Date().toISOString(),
   };
 
-  console.log("Sending message:", message);
   socketRef.current.emit("sendMessage", message, (response) => {
     if (response?.error) {
       toast.error(response.error);
       setMessages((prev) =>
-        prev.filter((msg) => msg.timestamp !== message.timestamp)
+        prev.filter((msg) => msg.messageId !== messageId)
       );
     } else {
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.timestamp === message.timestamp ? { ...msg, status: "sent" } : msg
+          msg.messageId === messageId ? { ...msg, status: "sent", messageId: response.messageId } : msg
         )
       );
     }
@@ -478,65 +490,7 @@ const fetchMessages = async () => {
   if (onMessageSent) {
     onMessageSent(selectedConversation.conversationId, message);
   }
-
-
-  // Gửi tin nhắn qua Socket.IO
-  const messageData = {
-    conversationId: selectedConversation,
-    content: messageContent,
-    type: messageType,
-    timestamp: new Date().toISOString(),
-    status: "sent",
-  };
-  console.log("Sending message:", messageData);
-  socketRef.current.emit("sendMessage", messageData);
-
-  // Reset trạng thái sau khi gửi
-  setNewMessage("");
-  setFile(null);
-  setAudioBlob(null);
-  setAudioPreviewUrl(null);
-  setIsRecording(false);
 };
-
-    const message = {
-      conversationId: selectedConversation.conversationId,
-      senderId: currentUser,
-      receiverId: selectedConversation.friendId,
-      content: messageContent,
-      type: messageType,
-      timestamp: new Date().toISOString(),
-    };
-
-    socketRef.current.emit("sendMessage", message, (response) => {
-      if (response?.error) {
-        toast.error(response.error);
-        setMessages((prev) =>
-          prev.filter((msg) => msg.timestamp !== message.timestamp)
-        );
-      } else {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.timestamp === message.timestamp ? { ...msg, status: "sent" } : msg
-          )
-        );
-      }
-    });
-
-    setMessages((prev) => [...prev, { ...message, status: "sending" }]);
-    setNewMessage("");
-    setFile(null);
-    setFilePreview(null);
-    setFilePreviewType(null);
-    setAudioBlob(null);
-    setAudioPreviewUrl(null);
-    setIsRecording(false);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
-    if (onMessageSent) {
-      onMessageSent(selectedConversation.conversationId, message);
-    }
-  };
 
   const handleEmojiClick = (emojiObject) => {
     setNewMessage((prev) => prev + emojiObject.emoji);
@@ -613,38 +567,24 @@ const fetchMessages = async () => {
     mediaRecorder.stream.getTracks().forEach((track) => track.stop());
   };
 
-  const handleRecallMessage = (timestamp) => {
-    if (!window.confirm("Bạn có chắc chắn muốn thu hồi tin nhắn này?")) return;
-    socketRef.current.emit("recallMessage", {
-      conversationId: selectedConversation.conversationId,
-      timestamp,
-    });
-    setMessages((prev) =>
-      prev.map((msg) =>
-        msg.timestamp === timestamp
-          ? { ...msg, type: "recalled", status: "recalled" }
-          : msg
-      )
-    );
-    setShowMoreOptions(null);
-  };
+const handleRecallMessage = (timestamp) => {
+  if (!window.confirm("Bạn có chắc chắn muốn thu hồi tin nhắn này?")) return;
+  socketRef.current.emit("recallMessage", {
+    conversationId: selectedConversation.conversationId,
+    timestamp,
+  });
+  setShowMoreOptions(null);
+};
 
-  const handleDeleteMessage = (timestamp) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa tin nhắn này?")) return;
-    socketRef.current.emit("deleteMessage", {
-      conversationId: selectedConversation.conversationId,
-      timestamp,
-      userId: currentUser,
-    });
-    setMessages((prev) =>
-      prev.map((msg) =>
-        msg.timestamp === timestamp && msg.senderId === currentUser
-          ? { ...msg, status: "deleted" }
-          : msg
-      )
-    );
-    setShowMoreOptions(null);
-  };
+const handleDeleteMessage = (timestamp) => {
+  if (!window.confirm("Bạn có chắc chắn muốn xóa tin nhắn này?")) return;
+  socketRef.current.emit("deleteMessage", {
+    conversationId: selectedConversation.conversationId,
+    timestamp,
+    userId: currentUser,
+  });
+  setShowMoreOptions(null);
+}
 
   const handleForwardMessage = (msg) => {
     setForwardMessage(msg);
@@ -669,34 +609,39 @@ const fetchMessages = async () => {
 
 const handleChangeTheme = (themeColor) => {
   localStorage.setItem(`theme_${selectedConversation.conversationId}`, themeColor);
-  socketRef.current.emit("changeTheme", {
+  socketRef.current.emit("themeChanged", {
     from: currentUser,
     newTheme: themeColor,
     conversationId: selectedConversation.conversationId,
   });
-  const systemMessage = {
-    conversationId: selectedConversation.conversationId,
-    senderId: currentUser,
-    receiverId: selectedConversation.friendId,
-    content: "Bạn đã thay đổi chủ đề màu sắc",
-    type: "system",
-    timestamp: new Date().toISOString(),
-    status: "sent",
-  };
-  socketRef.current.emit("sendMessage", systemMessage, (response) => {
-    if (response?.error) {
-      toast.error(response.error);
-      setMessages((prev) =>
-        prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
-      );
-    }
-  });
-  setMessages((prev) => [...prev, systemMessage]);
-  selectedConversation.theme = themeColor;
+  setSelectedConversation((prev) => ({ ...prev, theme: themeColor }));
   setShowThemeModal(false);
   setShowSettingsModal(true);
-  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-};
+
+    
+    const systemMessage = {
+      conversationId: selectedConversation.conversationId,
+      senderId: currentUser,
+      receiverId: selectedConversation.friendId,
+      content: "Bạn đã thay đổi chủ đề màu sắc",
+      type: "system",
+      timestamp: new Date().toISOString(),
+      status: "sent",
+    };
+    socketRef.current.emit("sendMessage", systemMessage, (response) => {
+      if (response?.error) {
+        toast.error(response.error);
+        setMessages((prev) =>
+          prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
+        );
+      }
+    });
+    setMessages((prev) => [...prev, systemMessage]);
+    selectedConversation.theme = themeColor;
+    setShowThemeModal(false);
+    setShowSettingsModal(true);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
 const handleSetNickname = () => {
   if (!nickname.trim()) {
@@ -707,50 +652,50 @@ const handleSetNickname = () => {
   socketRef.current.emit("nicknameChanged", {
     conversationId: selectedConversation.conversationId,
     newNickname: nickname,
-    from: currentUser, // Thêm trường from
   });
-
-  // Cập nhật tên trên header và state ngay lập tức
   setSelectedConversation((prev) => ({
     ...prev,
     friendName: nickname,
   }));
-
-  // Gửi thông báo hệ thống vào khung chat
-  const systemMessage = {
-    conversationId: selectedConversation.conversationId,
-    senderId: currentUser,
-    receiverId: selectedConversation.friendId,
-    content: `Bạn đã đổi biệt hiệu của ${profile?.name || selectedConversation.friendName} thành ${nickname}`,
-    type: "system",
-    timestamp: new Date().toISOString(),
-    status: "sent",
-  };
-  socketRef.current.emit("sendMessage", systemMessage, (response) => {
-    if (response?.error) {
-      toast.error(response.error);
-      setMessages((prev) =>
-        prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
-      );
-    }
-  });
-  setMessages((prev) => [...prev, systemMessage]);
-  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
   setShowNicknameModal(false);
   setNickname("");
   setShowSettingsModal(true);
-};
 
-const handleShowSearchBar = () => {
-  setShowSearchBar(true);
-  setShowSettingsModal(false);
-};
 
-const handleClearSearch = () => {
-  setSearchQuery("");
-  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-};  
+    const systemMessage = {
+      conversationId: selectedConversation.conversationId,
+      senderId: currentUser,
+      receiverId: selectedConversation.friendId,
+      content: `Bạn đã đổi biệt hiệu của ${profile?.name || selectedConversation.friendName} thành ${nickname}`,
+      type: "system",
+      timestamp: new Date().toISOString(),
+      status: "sent",
+    };
+    socketRef.current.emit("sendMessage", systemMessage, (response) => {
+      if (response?.error) {
+        toast.error(response.error);
+        setMessages((prev) =>
+          prev.filter((msg) => msg.timestamp !== systemMessage.timestamp)
+        );
+      }
+    });
+    setMessages((prev) => [...prev, systemMessage]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+    setShowNicknameModal(false);
+    setNickname("");
+    setShowSettingsModal(true);
+  };
+
+  const handleShowSearchBar = () => {
+    setShowSearchBar(true);
+    setShowSettingsModal(false);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const handleCancelSearch = () => {
     setShowSearchBar(false);
@@ -794,70 +739,69 @@ const handleClearSearch = () => {
     });
   };
 
-const handleSearchMessages = () => {
-  if (!searchQuery.trim()) {
-    toast.error("Vui lòng nhập nội dung tìm kiếm");
-    return;
-  }
-  // Scroll to the first matching message
-  const firstMatch = messages.find((msg) =>
-    filterMessageContent(msg.content)
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase())
-  );
-  if (firstMatch) {
-    const messageElement = document.querySelector(
-      `.messageContainer[data-timestamp="${firstMatch.timestamp}"]`
-    );
-    if (messageElement) {
-      messageElement.scrollIntoView({ behavior: "smooth", block: "center" });
+  const handleSearchMessages = () => {
+    if (!searchQuery.trim()) {
+      toast.error("Vui lòng nhập nội dung tìm kiếm");
+      return;
     }
-  } else {
-    toast.info("Không tìm thấy tin nhắn phù hợp");
-  }
+    const firstMatch = messages.find((msg) =>
+      filterMessageContent(msg.content)
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase())
+    );
+    if (firstMatch) {
+      const messageElement = document.querySelector(
+        `.messageContainer[data-timestamp="${firstMatch.timestamp}"]`
+      );
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } else {
+      toast.info("Không tìm thấy tin nhắn phù hợp");
+    }
+  };
+
+ const handleShowMoreOptions = (messageId) => {
+  setShowMoreOptions(messageId === showMoreOptions ? null : messageId);
 };
 
-  const handleShowMoreOptions = (timestamp) => {
-    setShowMoreOptions(timestamp === showMoreOptions ? null : timestamp);
-  };
-
-  const handleReact = (timestamp) => {
-    setShowReactionModal(timestamp);
-  };
+const handleReact = (messageId) => {
+  setShowReactionModal(messageId);
+};
 
   const handleSendReaction = (reaction) => {
-    if (showReactionModal) {
-      const message = messages.find((msg) => msg.timestamp === showReactionModal);
-      if (message) {
-        if (message.reaction === reaction) {
-          const updatedMessage = { ...message, reaction: null };
-          socketRef.current.emit("reactMessage", {
-            conversationId: selectedConversation.conversationId,
-            timestamp: showReactionModal,
-            reaction: null,
-          });
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.timestamp === showReactionModal ? updatedMessage : msg
-            )
-          );
-        } else {
-          const updatedMessage = { ...message, reaction };
-          socketRef.current.emit("reactMessage", {
-            conversationId: selectedConversation.conversationId,
-            timestamp: showReactionModal,
-            reaction,
-          });
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.timestamp === showReactionModal ? updatedMessage : msg
-            )
-          );
-        }
-        setShowReactionModal(null);
+  if (showReactionModal) {
+    const message = messages.find((msg) => msg.messageId === showReactionModal);
+    if (message) {
+      if (message.reaction === reaction) {
+        const updatedMessage = { ...message, reaction: null };
+        socketRef.current.emit("reactMessage", {
+          conversationId: selectedConversation.conversationId,
+          messageId: showReactionModal,
+          reaction: null,
+        });
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.messageId === showReactionModal ? updatedMessage : msg
+          )
+        );
+      } else {
+        const updatedMessage = { ...message, reaction };
+        socketRef.current.emit("reactMessage", {
+          conversationId: selectedConversation.conversationId,
+          messageId: showReactionModal,
+          reaction,
+        });
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.messageId === showReactionModal ? updatedMessage : msg
+          )
+        );
       }
+      setShowReactionModal(null);
     }
-  };
+  }
+};
 
   return (
     <div className="chatArea" style={{ backgroundColor: selectedConversation?.theme || '#ffffff' }}>
@@ -897,20 +841,20 @@ const handleSearchMessages = () => {
               </button>
             </div>
           </div>
-{showSearchBar && (
-  <div className="searchArea">
-    <input
-      type="text"
-      value={searchQuery}
-      onChange={(e) => setSearchQuery(e.target.value)}
-      placeholder="Tìm kiếm tin nhắn..."
-      className="searchInput"
-    />
-    <button onClick={handleCancelSearch} className="cancelSearchButton">
-      Hủy
-    </button>
-  </div>
-)}
+          {showSearchBar && (
+            <div className="searchArea">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm tin nhắn..."
+                className="searchInput"
+              />
+              <button onClick={handleCancelSearch} className="cancelSearchButton">
+                Hủy
+              </button>
+            </div>
+          )}
 <div className="messages">
   {messages
     .filter((msg) =>
@@ -921,200 +865,203 @@ const handleSearchMessages = () => {
             .includes(searchQuery.toLowerCase())
         : true
     )
-.map((msg, index) => {
-                  const isOwnMessage = msg.senderId === currentUser;
-                const senderName = isOwnMessage
-                  ? "Bạn"
-                  : selectedConversation.friendName;
-                const filteredContent = filterMessageContent(msg.content);
-                const currentMsgDate = new Date(msg.timestamp);
-                const prevMsg = index > 0 ? messages[index - 1] : null;
-                const prevMsgDate = prevMsg ? new Date(prevMsg.timestamp) : null;
-                const showDate = isDifferentDay(currentMsgDate, prevMsgDate);
+    .map((msg, index) => {
+      const isOwnMessage = msg.senderId === currentUser;
+      const senderName = isOwnMessage
+        ? "Bạn"
+        : selectedConversation.friendName;
+      const filteredContent = filterMessageContent(msg.content);
+      const currentMsgDate = new Date(msg.timestamp);
+      const prevMsg = index > 0 ? messages[index - 1] : null;
+      const prevMsgDate = prevMsg ? new Date(prevMsg.timestamp) : null;
+      const showDate = isDifferentDay(currentMsgDate, prevMsgDate);
+      const isRead = msg.readBy && msg.readBy.includes(selectedConversation.friendId);
 
-                return (
-                  <div key={index}>
-                    {showDate && (
-                      <div className="dateDivider">
-                        {formatDate(currentMsgDate)}
+      return (
+        <div key={msg.messageId || index}>
+          {showDate && (
+            <div className="dateDivider">
+              {formatDate(currentMsgDate)}
+            </div>
+          )}
+          <div
+            className={`messageContainer ${isOwnMessage ? "ownMessage" : ""}`}
+            data-timestamp={msg.timestamp}
+          >
+            <div className="messageWrapper">
+              <div
+                className={`message ${
+                  searchQuery &&
+                  filteredContent
+                    .toLowerCase()
+                    .includes(searchQuery.toLowerCase())
+                    ? "highlightedMessage"
+                    : ""
+                }`}
+                style={{
+                  backgroundColor: isOwnMessage
+                    ? selectedConversation.theme || "#0084ff"
+                    : "#f0f2f5",
+                  borderColor: isOwnMessage
+                    ? "transparent"
+                    : selectedConversation.theme || "#e2e8f0",
+                  color: isOwnMessage ? "#ffffff" : "#1f2937",
+                  position: "relative",
+                }}
+                onMouseLeave={() => setShowMoreOptions(null)}
+              >
+                <div className="messageOptions">
+                  <button
+                    className="optionButton"
+                    title="Thêm tùy chọn"
+                    onClick={() => handleShowMoreOptions(msg.messageId)}
+                  >
+                    ⋮
+                  </button>
+                  <button
+                    className="optionButton"
+                    title="React tin nhắn"
+                    onClick={() => handleReact(msg.messageId)}
+                  >
+                    😊
+                  </button>
+                  {showMoreOptions === msg.messageId && (
+                    <div className="messageMoreOptions">
+                      {isOwnMessage && (
+                        <>
+                          <button
+                            className="moreOptionButton"
+                            onClick={() => handleRecallMessage(msg.timestamp)}
+                          >
+                            Thu hồi
+                          </button>
+                          <button
+                            className="moreOptionButton"
+                            onClick={() => handleDeleteMessage(msg.timestamp)}
+                          >
+                            Xóa
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className="moreOptionButton"
+                        onClick={() => handleForwardMessage(msg)}
+                      >
+                        Chuyển tiếp
+                      </button>
+                    </div>
+                  )}
+                  {showReactionModal === msg.messageId && (
+                    <div className="reactionModal">
+                      <button
+                        className="reactionButton"
+                        onClick={() => handleSendReaction("👍")}
+                      >
+                        👍
+                      </button>
+                      <button
+                        className="reactionButton"
+                        onClick={() => handleSendReaction("❤️")}
+                      >
+                        ❤️
+                      </button>
+                      <button
+                        className="reactionButton"
+                        onClick={() => handleSendReaction("😢")}
+                      >
+                        😢
+                      </button>
+                      <button
+                        className="reactionButton"
+                        onClick={() => handleSendReaction("😮")}
+                      >
+                        😮
+                      </button>
+                      <button
+                        className="reactionButton"
+                        onClick={() => handleSendReaction("😂")}
+                      >
+                        😂
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {msg.status === "deleted" &&
+                msg.senderId === currentUser ? (
+                  <i className="statusText">Tin nhắn đã bị xóa</i>
+                ) : msg.type === "recalled" ? (
+                  <i className="statusText">Tin nhắn đã được thu hồi</i>
+                ) : msg.type === "system" ? (
+                  <span className="systemMessage">{filteredContent}</span>
+                ) : (
+                  <>
+                    <div className="senderName">{senderName}</div>
+                    {msg.forwardedFrom && (
+                      <div className="forwarded">
+                        Chuyển tiếp từ: {msg.forwardedName || msg.forwardedFrom}
                       </div>
                     )}
-                    <div
-className={`messageContainer ${isOwnMessage ? "ownMessage" : ""}`}
-  data-timestamp={msg.timestamp}                  >
-                      <div className="messageWrapper">
-                        <div
-className={`message ${
-  searchQuery &&
-  filteredContent
-    .toLowerCase()
-    .includes(searchQuery.toLowerCase())
-    ? "highlightedMessage"
-    : ""
-}`}
-                          style={{
-                            backgroundColor: isOwnMessage
-                              ? selectedConversation.theme || "#0084ff"
-                              : "#f0f2f5",
-                            borderColor: isOwnMessage
-                              ? "transparent"
-                              : selectedConversation.theme || "#e2e8f0",
-                            color: isOwnMessage ? "#ffffff" : "#1f2937",
-                            position: "relative",
-                          }}
-                          onMouseLeave={() => setShowMoreOptions(null)}
-                        >
-                          <div className="messageOptions">
-                            <button
-                              className="optionButton"
-                              title="Thêm tùy chọn"
-                              onClick={() => handleShowMoreOptions(msg.timestamp)}
-                            >
-                              ⋮
-                            </button>
-                            <button
-                              className="optionButton"
-                              title="React tin nhắn"
-                              onClick={() => handleReact(msg.timestamp)}
-                            >
-                              😊
-                            </button>
-                            {showMoreOptions === msg.timestamp && (
-                              <div className="messageMoreOptions">
-                                {isOwnMessage && (
-                                  <>
-                                    <button
-                                      className="moreOptionButton"
-                                      onClick={() => handleRecallMessage(msg.timestamp)}
-                                    >
-                                      Thu hồi
-                                    </button>
-                                    <button
-                                      className="moreOptionButton"
-                                      onClick={() => handleDeleteMessage(msg.timestamp)}
-                                    >
-                                      Xóa
-                                    </button>
-                                  </>
-                                )}
-                                <button
-                                  className="moreOptionButton"
-                                  onClick={() => handleForwardMessage(msg)}
-                                >
-                                  Chuyển tiếp
-                                </button>
-                              </div>
-                            )}
-                            {showReactionModal === msg.timestamp && (
-                              <div className="reactionModal">
-                                <button
-                                  className="reactionButton"
-                                  onClick={() => handleSendReaction("👍")}
-                                >
-                                  👍
-                                </button>
-                                <button
-                                  className="reactionButton"
-                                  onClick={() => handleSendReaction("❤️")}
-                                >
-                                  ❤️
-                                </button>
-                                <button
-                                  className="reactionButton"
-                                  onClick={() => handleSendReaction("😢")}
-                                >
-                                  😢
-                                </button>
-                                <button
-                                  className="reactionButton"
-                                  onClick={() => handleSendReaction("😮")}
-                                >
-                                  😮
-                                </button>
-                                <button
-                                  className="reactionButton"
-                                  onClick={() => handleSendReaction("😂")}
-                                >
-                                  😂
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                          {msg.status === "deleted" &&
-                          msg.senderId === currentUser ? (
-                            <i className="statusText">Tin nhắn đã bị xóa</i>
-                          ) : msg.type === "recalled" ? (
-                            <i className="statusText">Tin nhắn đã được thu hồi</i>
-                          ) : msg.type === "system" ? (
-                            <span className="systemMessage">{filteredContent}</span>
-                          ) : (
-                            <>
-                              <div className="senderName">{senderName}</div>
-                              {msg.forwardedFrom && (
-                                <div className="forwarded">
-                                  Chuyển tiếp từ: {msg.forwardedName || msg.forwardedFrom}
-                                </div>
-                              )}
-                              {msg.type === "image" ? (
-                                <img
-                                  src={msg.content}
-                                  alt="Hình ảnh"
-                                  className="imagePreview"
-                                  onError={() => toast.error("Không thể tải hình ảnh")}
-                                />
-                              ) : msg.type === "audio" ? (
-                                <audio controls className="audioPlayer">
-                                  <source
-                                    src={msg.content}
-                                    type={
-                                      msg.content.endsWith(".mp3")
-                                        ? "audio/mpeg"
-                                        : msg.content.endsWith(".wav")
-                                        ? "audio/wav"
-                                        : msg.content.endsWith(".webm")
-                                        ? "audio/webm"
-                                        : "audio/ogg"
-                                    }
-                                  />
-                                  Trình duyệt của bạn không hỗ trợ thẻ audio.
-                                </audio>
-                              ) : msg.type === "video" ? (
-                                <video controls className="videoPlayer">
-                                  <source
-                                    src={msg.content}
-                                    type={
-                                      msg.content.endsWith(".mp4")
-                                        ? "video/mp4"
-                                        : msg.content.endsWith(".webm")
-                                        ? "video/webm"
-                                        : "video/quicktime"
-                                    }
-                                  />
-                                  Trình duyệt của bạn không hỗ trợ thẻ video.
-                                </video>
-                              ) : msg.type === "file" ? (
-                                <a href={msg.content} download className="fileLink">
-                                  Tệp: {msg.content.split("/").pop()}
-                                </a>
-                              ) : (
-                                <span className="messageContent">{filteredContent}</span>
-                              )}
-                              {msg.reaction && (
-                                <span className="reaction">{msg.reaction}</span>
-                              )}
-                              <div className="timestamp">
-                                {new Date(msg.timestamp).toLocaleTimeString()}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                    {msg.type === "image" ? (
+                      <img
+                        src={msg.content}
+                        alt="Hình ảnh"
+                        className="imagePreview"
+                        onError={() => toast.error("Không thể tải hình ảnh")}
+                      />
+                    ) : msg.type === "audio" ? (
+                      <audio controls className="audioPlayer">
+                        <source
+                          src={msg.content}
+                          type={
+                            msg.content.endsWith(".mp3")
+                              ? "audio/mpeg"
+                              : msg.content.endsWith(".wav")
+                              ? "audio/wav"
+                              : msg.content.endsWith(".webm")
+                              ? "audio/webm"
+                              : "audio/ogg"
+                          }
+                        />
+                        Trình duyệt của bạn không hỗ trợ thẻ audio.
+                      </audio>
+                    ) : msg.type === "video" ? (
+                      <video controls className="videoPlayer">
+                        <source
+                          src={msg.content}
+                          type={
+                            msg.content.endsWith(".mp4")
+                              ? "video/mp4"
+                              : msg.content.endsWith(".webm")
+                              ? "video/webm"
+                              : "video/quicktime"
+                          }
+                        />
+                        Trình duyệt của bạn không hỗ trợ thẻ video.
+                      </video>
+                    ) : msg.type === "file" ? (
+                      <a href={msg.content} download className="fileLink">
+                        Tệp: {msg.content.split("/").pop()}
+                      </a>
+                    ) : (
+                      <span className="messageContent">{filteredContent}</span>
+                    )}
+                    {msg.reaction && (
+                      <span className="reaction">{msg.reaction}</span>
+                    )}
+                    <div className="timestamp">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                      {isOwnMessage && isRead && <span className="readReceipt">✓✓</span>}
                     </div>
-                  </div>
-                );
-              })}
-            <div ref={messagesEndRef} />
+                  </>
+                )}
+              </div>
+            </div>
           </div>
+        </div>
+      );
+    })}
+  <div ref={messagesEndRef} />
+</div>
           <div className="inputArea">
             {showEmojiPicker && (
               <div className="emojiPicker">
@@ -1222,6 +1169,7 @@ className={`message ${
               <button
                 onClick={handleSendMessage}
                 className="sendButton"
+                disabled={!newMessage.trim() && !file && !audioBlob}
               >
                 Gửi
               </button>
@@ -1296,313 +1244,314 @@ className={`message ${
         </div>
       )}
 
- {showThemeModal && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2>Chọn chủ đề màu sắc</h2>
-      <div className="themeOptions">
-        {themes.map((theme) => (
-          <div key={theme.color} className="themeOption" style={{ display: 'flex', alignItems: 'center', margin: '10px', gap: '10px' }}>
-            <button
-              onClick={() => handleChangeTheme(theme.color)}
-              style={{
-                backgroundColor: theme.color,
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                border: "2px solid #ffffff",
-                cursor: "pointer",
-              }}
-              title={theme.title}
-            />
-            <span style={{ marginLeft: '10px', fontSize: '16px', color: '#1f2937', whiteSpace: 'nowrap' }}>{theme.title}</span>
-          </div>
-        ))}
-      </div>
-      <div className="modalButtons">
-        <button
-          onClick={() => {
-            setShowThemeModal(false);
-            setShowSettingsModal(true);
-          }}
-          className="modalButton"
-          style={{ backgroundColor: '#4CAF50', color: 'white' }} // Màu xanh lá nhạt, chữ trắng
-        >
-          Quay lại
-        </button>
-        <button
-          onClick={() => setShowThemeModal(false)}
-          className="modalButton"
-          style={{ backgroundColor: '#f44336', color: 'white' }} // Màu đỏ nhạt, chữ trắng
-        >
-          Đóng
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-{showNicknameModal && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2>Đặt biệt hiệu</h2>
-      <div className="nicknameInputContainer">
-        <span className="nicknameIcon">✍️</span>
-        <input
-          type="text"
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value)}
-          placeholder="Nhập biệt hiệu..."
-          className="nicknameInput"
-        />
-      </div>
-      <div className="modalButtons">
-        <button
-          onClick={handleSetNickname}
-          className="modalButton"
-          style={{ backgroundColor: '#4CAF50', color: 'white' }}
-        >
-          Lưu
-        </button>
-        <button
-          onClick={() => {
-            setShowNicknameModal(false);
-            setShowSettingsModal(true);
-          }}
-          className="modalButton"
-          style={{ backgroundColor: '#f44336', color: 'white' }}
-        >
-          Quay lại
-        </button>
-        <button
-          onClick={() => setShowNicknameModal(false)}
-          className="modalButton"
-          style={{ backgroundColor: '#757575', color: 'white' }}
-        >
-          Đóng
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-{showProfileModal && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2>Thông tin cá nhân</h2>
-      {profile ? (
-        <div className="profileInfo">
-          <p><strong>Tên:</strong> {profile.name || "Chưa cập nhật"}</p>
-          <p><strong>Email:</strong> {profile.email}</p>
-          <p><strong>Số điện thoại:</strong> {profile.phoneNumber || "Chưa cung cấp"}</p>
-        </div>
-      ) : (
-        <p>Đang tải thông tin...</p>
-      )}
-      <div className="modalButtons">
-        <button
-          onClick={() => {
-            setShowProfileModal(false);
-            setShowSettingsModal(true);
-          }}
-          className="modalButton"
-          style={{ backgroundColor: '#4CAF50', color: 'white', padding: '10px 20px', borderRadius: '5px', marginRight: '10px' }}
-        >
-          Quay lại
-        </button>
-        <button
-          onClick={() => setShowProfileModal(false)}
-          className="modalButton"
-          style={{ backgroundColor: '#f44336', color: 'white', padding: '10px 20px', borderRadius: '5px' }}
-        >
-          Đóng
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-{showSettingsModal && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2 className="modalTitle">Tùy chỉnh đoạn chat</h2>
-      <button 
-        onClick={() => { setShowSettingsModal(false); setShowThemeModal(true); }}
-        className="settingsButton"
-      >
-        <span className="settingsIcon">🎨</span> Chọn chủ đề
-      </button>
-      <button 
-        onClick={() => { setShowSettingsModal(false); setShowNicknameModal(true); }}
-        className="settingsButton"
-      >
-        <span className="settingsIcon">✍️</span> Đặt biệt hiệu
-      </button>
-      <button 
-        onClick={() => { setShowSettingsModal(false); setShowProfileModal(true); }}
-        className="settingsButton"
-      >
-        <span className="settingsIcon">👤</span> Xem thông tin
-      </button>
-      <button 
-        onClick={handleShowSearchBar}
-        className="settingsButton"
-      >
-        <span className="settingsIcon">🔍</span> Tìm kiếm tin nhắn
-      </button>
-      <button 
-        onClick={handleShowSharedMedia}
-        className="settingsButton"
-      >
-        <span className="settingsIcon">📸</span> Ảnh/Video & Tệp
-      </button>
-      <button
-        onClick={() => setShowSettingsModal(false)}
-        className="closeModalButton"
-      >
-        Đóng
-      </button>
-    </div>
-  </div>
-)}
-
-{showSharedMedia && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2>Truyền thông đã chia sẻ</h2>
-      <div className="mediaGrid">
-        {(() => {
-          const mediaByDate = {};
-          messages
-            .filter((msg) => ["image", "video"].includes(msg.type)) // Exclude audio
-            .forEach((msg) => {
-              const date = formatDate(new Date(msg.timestamp));
-              if (!mediaByDate[date]) {
-                mediaByDate[date] = [];
-              }
-              mediaByDate[date].push(msg);
-            });
-
-          return Object.keys(mediaByDate).map((date, index) => (
-            <div key={index}>
-              <div className="dateDivider">{date}</div>
-              <div className="mediaRow">
-                {mediaByDate[date].map((msg, msgIndex) => (
-                  <div
-                    key={msgIndex}
-                    className="mediaItem"
-                    onClick={() => handleMediaClick(msg)}
-                  >
-                    {msg.type === "image" && (
-                      <img
-                        src={msg.content}
-                        alt="Media"
-                        className="mediaThumbnail"
-                        onError={() => toast.error("Không thể tải hình ảnh")}
-                      />
-                    )}
-                    {msg.type === "video" && (
-                      <video
-                        src={msg.content}
-                        className="mediaThumbnail"
-                        muted
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
+      {showThemeModal && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2>Chọn chủ đề màu sắc</h2>
+            <div className="themeOptions">
+              {themes.map((theme) => (
+                <div key={theme.color} className="themeOption" style={{ display: 'flex', alignItems: 'center', margin: '10px', gap: '10px' }}>
+                  <button
+                    onClick={() => handleChangeTheme(theme.color)}
+                    style={{
+                      backgroundColor: theme.color,
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "50%",
+                      border: "2px solid #ffffff",
+                      cursor: "pointer",
+                    }}
+                    title={theme.title}
+                  />
+                  <span style={{ marginLeft: '10px', fontSize: '16px', color: '#1f2937', whiteSpace: 'nowrap' }}>{theme.title}</span>
+                </div>
+              ))}
             </div>
-          ));
-        })()}
-      </div>
-      <div className="modalButtons">
-        <button
-          onClick={() => {
-            setShowSharedMedia(false);
-            setShowSettingsModal(true);
-          }}
-          className="backModalButton"
-        >
-          Quay lại
-        </button>
-        <button
-          onClick={() => setShowSharedMedia(false)}
-          className="closeModalButton"
-        >
-          Đóng
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+            <div className="modalButtons">
+              <button
+                onClick={() => {
+                  setShowThemeModal(false);
+                  setShowSettingsModal(true);
+                }}
+                className="modalButton"
+                style={{ backgroundColor: '#4CAF50', color: 'white' }}
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => setShowThemeModal(false)}
+                className="modalButton"
+                style={{ backgroundColor: '#f44336', color: 'white' }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-{showMediaPreview && selectedMedia && (
-  <div className="modal">
-    <div className="modalContent">
-      <h2>Xem truyền thông</h2>
-      {selectedMedia.type === "image" && (
-        <img
-          src={selectedMedia.content}
-          alt="Preview"
-          className="mediaPreview"
-          onError={() => toast.error("Không thể tải hình ảnh")}
-        />
+      {showNicknameModal && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2>Đặt biệt hiệu</h2>
+            <div className="nicknameInputContainer">
+              <span className="nicknameIcon">✍️</span>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="Nhập biệt hiệu..."
+                className="nicknameInput"
+              />
+            </div>
+            <div className="modalButtons">
+              <button
+                onClick={handleSetNickname}
+                className="modalButton"
+                style={{ backgroundColor: '#4CAF50', color: 'white' }}
+              >
+                Lưu
+              </button>
+              <button
+                onClick={() => {
+                  setShowNicknameModal(false);
+                  setShowSettingsModal(true);
+                }}
+                className="modalButton"
+                style={{ backgroundColor: '#f44336', color: 'white' }}
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => setShowNicknameModal(false)}
+                className="modalButton"
+                style={{ backgroundColor: '#757575', color: 'white' }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-      {selectedMedia.type === "audio" && (
-        <audio controls className="mediaPreviewAudio">
-          <source
-            src={selectedMedia.content}
-            type={
-              selectedMedia.content.endsWith(".mp3")
-                ? "audio/mpeg"
-                : selectedMedia.content.endsWith(".wav")
-                ? "audio/wav"
-                : selectedMedia.content.endsWith(".webm")
-                ? "audio/webm"
-                : "audio/ogg"
-            }
-          />
-          Trình duyệt của bạn không hỗ trợ thẻ audio.
-        </audio>
+
+      {showProfileModal && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2>Thông tin cá nhân</h2>
+            {profile ? (
+              <div className="profileInfo">
+                <p><strong>Tên:</strong> {profile.name || "Chưa cập nhật"}</p>
+                <p><strong>Email:</strong> {profile.email}</p>
+                <p><strong>Số điện thoại:</strong> {profile.phoneNumber || "Chưa cung cấp"}</p>
+              </div>
+            ) : (
+              <p>Đang tải thông tin...</p>
+            )}
+            <div className="modalButtons">
+              <button
+                onClick={() => {
+                  setShowProfileModal(false);
+                  setShowSettingsModal(true);
+                }}
+                className="modalButton"
+                style={{ backgroundColor: '#4CAF50', color: 'white', padding: '10px 20px', borderRadius: '5px', marginRight: '10px' }}
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="modalButton"
+                style={{ backgroundColor: '#f44336', color: 'white', padding: '10px 20px', borderRadius: '5px' }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-      {selectedMedia.type === "video" && (
-        <video controls className="mediaPreviewVideo">
-          <source
-            src={selectedMedia.content}
-            type={
-              selectedMedia.content.endsWith(".mp4")
-                ? "video/mp4"
-                : selectedMedia.content.endsWith(".webm")
-                ? "video/webm"
-                : "video/quicktime"
-            }
-          />
-          Trình duyệt của bạn không hỗ trợ thẻ video.
-        </video>
+
+      {showSettingsModal && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2 className="modalTitle">Tùy chỉnh đoạn chat</h2>
+            <button 
+              onClick={() => { setShowSettingsModal(false); setShowThemeModal(true); }}
+              className="settingsButton"
+            >
+              <span className="settingsIcon">🎨</span> Chọn chủ đề
+            </button>
+            <button 
+              onClick={() => { setShowSettingsModal(false); setShowNicknameModal(true); }}
+              className="settingsButton"
+            >
+              <span className="settingsIcon">✍️</span> Đặt biệt hiệu
+            </button>
+            <button 
+              onClick={() => { setShowSettingsModal(false); setShowProfileModal(true); }}
+              className="settingsButton"
+            >
+              <span className="settingsIcon">👤</span> Xem thông tin
+            </button>
+            <button 
+              onClick={handleShowSearchBar}
+              className="settingsButton"
+            >
+              <span className="settingsIcon">🔍</span> Tìm kiếm tin nhắn
+            </button>
+            <button 
+              onClick={handleShowSharedMedia}
+              className="settingsButton"
+            >
+              <span className="settingsIcon">📸</span> Ảnh/Video & Tệp
+            </button>
+            <button
+              onClick={() => setShowSettingsModal(false)}
+              className="closeModalButton"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
       )}
-      <div className="modalButtons">
-        <button
-          onClick={() => {
-            setShowMediaPreview(false);
-            setSelectedMedia(null);
-            setShowSettingsModal(true);
-          }}
-          className="backModalButton"
-        >
-          Quay lại
-        </button>
-        <button
-          onClick={() => {
-            setShowMediaPreview(false);
-            setSelectedMedia(null);
-          }}
-          className="closeModalButton"
-        >
-          Đóng
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+
+      {showSharedMedia && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2>Truyền thông đã chia sẻ</h2>
+            <div className="mediaGrid">
+              {(() => {
+                const mediaByDate = {};
+                messages
+                  .filter((msg) => ["image", "video"].includes(msg.type))
+                  .forEach((msg) => {
+                    const date = formatDate(new Date(msg.timestamp));
+                    if (!mediaByDate[date]) {
+                      mediaByDate[date] = [];
+                    }
+                    mediaByDate[date].push(msg);
+                  });
+
+                return Object.keys(mediaByDate).map((date, index) => (
+                  <div key={index}>
+                    <div className="dateDivider">{date}</div>
+                    <div className="mediaRow">
+                      {mediaByDate[date].map((msg, msgIndex) => (
+                        <div
+                          key={msgIndex}
+                          className="mediaItem"
+                          onClick={() => handleMediaClick(msg)}
+                        >
+                          {msg.type === "image" && (
+                            <img
+                              src={msg.content}
+                              alt="Media"
+                              className="mediaThumbnail"
+                              onError={() => toast.error("Không thể tải hình ảnh")}
+                            />
+                          )}
+                          {msg.type === "video" && (
+                            <video
+                              src={msg.content}
+                              className="mediaThumbnail"
+                              muted
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+            <div className="modalButtons">
+              <button
+                onClick={() => {
+                  setShowSharedMedia(false);
+                  setShowSettingsModal(true);
+                }}
+                className="backModalButton"
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => setShowSharedMedia(false)}
+                className="closeModalButton"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMediaPreview && selectedMedia && (
+        <div className="modal">
+          <div className="modalContent">
+            <h2>Xem truyền thông</h2>
+            {selectedMedia.type === "image" && (
+              <img
+                src={selectedMedia.content}
+                alt="Preview"
+                className="mediaPreview"
+                onError={() => toast.error("Không thể tải hình ảnh")}
+              />
+            )}
+            {selectedMedia.type === "audio" && (
+              <audio controls className="mediaPreviewAudio">
+                <source
+                  src={selectedMedia.content}
+                  type={
+                    selectedMedia.content.endsWith(".mp3")
+                      ? "audio/mpeg"
+                      : selectedMedia.content.endsWith(".wav")
+                      ? "audio/wav"
+                      : selectedMedia.content.endsWith(".webm")
+                      ? "audio/webm"
+                      : "audio/ogg"
+                  }
+                />
+                Trình duyệt của bạn không hỗ trợ thẻ audio.
+              </audio>
+            )}
+            {selectedMedia.type === "video" && (
+              <video controls className="mediaPreviewVideo">
+                <source
+                  src={selectedMedia.content}
+                  type={
+                    selectedMedia.content.endsWith(".mp4")
+                      ? "video/mp4"
+                      : selectedMedia.content.endsWith(".webm")
+                      ? "video/webm"
+                      : "video/quicktime"
+                  }
+                />
+                Trình duyệt của bạn không hỗ trợ thẻ video.
+              </video>
+            )}
+            <div className="modalButtons">
+              <button
+                onClick={() => {
+                  setShowMediaPreview(false);
+                  setSelectedMedia(null);
+                  setShowSettingsModal(true);
+                }}
+                className="backModalButton"
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => {
+                  setShowMediaPreview(false);
+                  setSelectedMedia(null);
+                }}
+                className="closeModalButton"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForwardModal && (
         <div className="modal">
@@ -1632,6 +1581,6 @@ className={`message ${
       <ToastContainer />
     </div>
   );
-
+}
 
 export default ChatWindow;
