@@ -193,7 +193,17 @@ io.on("connection", (socket) => {
       console.error("Error deleting message:", error.message);
     }
   });
-
+socket.on("nicknameChanged", (data) => {
+  if (!data.conversationId || !data.newNickname) {
+    console.error("Invalid nicknameChanged data:", data);
+    return;
+  }
+  console.log(`Nickname changed in conversation ${data.conversationId} to ${data.newNickname} by ${socket.user.sub}`);
+  io.to(data.conversationId).emit("nicknameChanged", {
+    conversationId: data.conversationId,
+    newNickname: data.newNickname,
+  });
+});
   socket.on("forwardMessage", async ({ conversationId, newConversationId, content, type, forwardedFrom }) => {
     try {
       if (!newConversationId || !content) {

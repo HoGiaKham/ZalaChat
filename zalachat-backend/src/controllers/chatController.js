@@ -129,19 +129,24 @@ const getConversations = async (req, res) => {
           ]);
           console.log(`Created conversationId ${conversationId} for user ${userId} and friend ${item.friendId}`);
         }
-        let friendName = item.friendName;
-        if (!friendName) {
-          try {
-            const friendData = await cognitoISP.adminGetUser({
-              UserPoolId: process.env.COGNITO_USER_POOL_ID,
-              Username: item.friendId,
-            }).promise();
-            friendName = friendData.UserAttributes.find(attr => attr.Name === "name")?.Value || item.friendId;
-          } catch (error) {
-            console.error(`Error fetching friend ${item.friendId} name:`, error.message);
-            friendName = item.friendId;
-          }
-        }
+ let friendName = item.friendName;
+if (!friendName) {
+  try {
+    const friendData = await cognitoISP.adminGetUser({
+      UserPoolId: process.env.COGNITO_USER_POOL_ID,
+      Username: item.friendId,
+    }).promise();
+    friendName = friendData.UserAttributes.find(attr => attr.Name === "name")?.Value || item.friendId;
+  } catch (error) {
+    console.error(`Error fetching friend ${item.friendId} name:`, error.message);
+    friendName = item.friendId;
+  }
+}
+// Thêm kiểm tra localStorage cho biệt hiệu tùy chỉnh
+const storedNickname = localStorage.getItem(`nickname_${conversationId}`);
+if (storedNickname) {
+  friendName = storedNickname;
+}
         const lastMessageParams = {
           TableName: process.env.DYNAMODB_TABLE_MESSAGES,
           KeyConditionExpression: "conversationId = :cid",
