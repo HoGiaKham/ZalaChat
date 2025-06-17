@@ -162,7 +162,7 @@ socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction })
         socketRef.current.off("messageSent");
         socketRef.current.off("error");
         socketRef.current.off("messageRecalled");
-        ssocketRef.current.off("messageDeleted", handleMessageDeleted); 
+        socketRef.current.off("messageDeleted", handleMessageDeleted); 
       }
     };
   }
@@ -185,6 +185,13 @@ socketRef.current.on("messageReacted", ({ conversationId, timestamp, reaction })
     const secs = seconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
+const handleMessageDeleted = ({ conversationId, timestamp }) => {
+  setMessages((prev) =>
+    prev.map((msg) =>
+      msg.timestamp === timestamp ? { ...msg, status: "deleted" } : msg
+    )
+  );
+};
 
   const initializePeerConnection = () => {
     const pc = new RTCPeerConnection(configuration);
