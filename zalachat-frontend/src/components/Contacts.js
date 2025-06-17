@@ -49,9 +49,10 @@ function Contacts() {
     fetchFriends();
     fetchFriendRequests();
 
-    socketRef.current = io("http://localhost:5000", {
-      auth: { token: tokens.accessToken },
-    });
+socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+  auth: { token: tokens.accessToken },
+});
+
 
     socketRef.current.on("receiveFriendRequest", () => {
       console.log("Nhận được lời mời kết bạn mới!");
