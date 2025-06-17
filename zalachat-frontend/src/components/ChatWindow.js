@@ -105,13 +105,35 @@ function ChatWindow({
     return () => clearInterval(recordingTimerRef.current);
   }, [isRecording]);
 
-  useEffect(() => {
-  if (socketRef.current) {
-    console.log("Socket connected:", socketRef.current.connected);
-    socketRef.current.on("connect", () => console.log("Socket connected"));
-    socketRef.current.on("disconnect", () => console.log("Socket disconnected"));
-  }
-}, [socketRef]);
+useEffect(() => {
+  // Khởi tạo kết nối Socket.IO
+  socketRef.current = io(process.env.REACT_APP_SOCKET_URL, {
+    auth: {
+      token: JSON.parse(localStorage.getItem("tokens"))?.accessToken,
+    },
+    withCredentials: true, // Cho phép gửi cookie nếu cần
+  });
+
+  // Xử lý sự kiện khi kết nối thành công
+  socketRef.current.on("connect", () => {
+    console.log("Socket connected:", socketRef.current.id);
+  });
+
+  // Xử lý sự kiện khi mất kết nối
+  socketRef.current.on("disconnect", () => {
+    console.log("Socket disconnected");
+  });
+
+  // Xử lý lỗi kết nối
+  socketRef.current.on("connect_error", (error) => {
+    console.error("Connection error:", error.message);
+  });
+
+  // Cleanup khi component unmount
+  return () => {
+    socketRef.current.disconnect();
+  };
+}, []); // Chạy một lần khi component mount, không phụ thuộc vào socketRef
 
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
@@ -306,84 +328,103 @@ const fetchMessages = async () => {
   };
 
   const handleSendMessage = async () => {
-    if (!selectedConversation || !socketRef.current?.connected) return;
+  if (!selectedConversation || !socketRef.current?.connected) return;
 
-    let messageContent = newMessage.trim();
-    let messageType = "text";
+  let messageContent = newMessage.trim();
+  let messageType = "text";
 
-    if (file) {
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        console.log("Đang tải file:", {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        });
-        const response = await axios.post(
-          `${process.env.REACT_APP_API_URL}/upload`,
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
-            },
-          }
-        );
-        messageContent = response.data.fileUrl;
-        messageType = getFileType(file.name);
-      } catch (error) {
-        console.error("Lỗi khi tải file:", error.response?.data || error.message);
-        toast.error(error.response?.data?.message || "Không thể tải file lên. Vui lòng thử lại.");
-        return;
-      }
-    } else if (audioBlob) {
-      if (!audioBlob.size) {
-        toast.error("Tin nhắn thoại rỗng, vui lòng ghi âm lại.");
-        setAudioBlob(null);
-        setAudioPreviewUrl(null);
-        setIsRecording(false);
-        return;
-      }
-      const formData = new FormData();
-      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, {
-        type: "audio/webm",
+  if (file) {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      console.log("Đang tải file:", {
+        name: file.name,
+        type: file.type,
+        size: file.size,
       });
-      formData.append("file", audioFile);
-      try {
-        console.log("Đang tải tin nhắn thoại:", {
-          name: audioFile.name,
-          type: audioFile.type,
-          size: audioFile.size,
-        });
-        const response = await axios.post(
-          `${process.env.REACT_APP_API_URL}/upload`,
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
-            },
-            timeout: 10000,
-          }
-        );
-        messageContent = response.data.fileUrl;
-        messageType = "audio";
-      } catch (error) {
-        console.error("Lỗi khi tải tin nhắn thoại:", error.response?.data || error.message);
-        toast.error(
-          error.response?.data?.message?.includes("Bucket")
-            ? "Lỗi máy chủ khi tải tin nhắn thoại. Vui lòng liên hệ hỗ trợ."
-            : error.response?.data?.message || "Không thể tải tin nhắn thoại. Vui lòng thử lại."
-        );
-        setAudioBlob(null);
-        setAudioPreviewUrl(null);
-        setIsRecording(false);
-        return;
-      }
-    } else if (!messageContent) {
+      const response = await axios.post(
+        `${process.env.REACT_APP_API_URL}/upload`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
+          },
+        }
+      );
+      messageContent = response.data.fileUrl;
+      messageType = getFileType(file.name);
+    } catch (error) {
+      console.error("Lỗi khi tải file:", error.response?.data || error.message);
+      toast.error(error.response?.data?.message || "Không thể tải file lên. Vui lòng thử lại.");
       return;
     }
+  } else if (audioBlob) {
+    if (!audioBlob.size) {
+      toast.error("Tin nhắn thoại rỗng, vui lòng ghi âm lại.");
+      setAudioBlob(null);
+      setAudioPreviewUrl(null);
+      setIsRecording(false);
+      return;
+    }
+    const formData = new FormData();
+    const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, {
+      type: "audio/webm",
+    });
+    formData.append("file", audioFile);
+    try {
+      console.log("Đang tải tin nhắn thoại:", {
+        name: audioFile.name,
+        type: audioFile.type,
+        size: audioFile.size,
+      });
+      const response = await axios.post(
+        `${process.env.REACT_APP_API_URL}/upload`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${JSON.parse(localStorage.getItem("tokens")).accessToken}`,
+          },
+          timeout: 10000,
+        }
+      );
+      messageContent = response.data.fileUrl;
+      messageType = "audio";
+    } catch (error) {
+      console.error("Lỗi khi tải tin nhắn thoại:", error.response?.data || error.message);
+      toast.error(
+        error.response?.data?.message?.includes("Bucket")
+          ? "Lỗi máy chủ khi tải tin nhắn thoại. Vui lòng liên hệ hỗ trợ."
+          : error.response?.data?.message || "Không thể tải tin nhắn thoại. Vui lòng thử lại."
+      );
+      setAudioBlob(null);
+      setAudioPreviewUrl(null);
+      setIsRecording(false);
+      return;
+    }
+  } else if (!messageContent) {
+    return;
+  }
+
+  // Gửi tin nhắn qua Socket.IO
+  const messageData = {
+    conversationId: selectedConversation,
+    content: messageContent,
+    type: messageType,
+    timestamp: new Date().toISOString(),
+    status: "sent",
+  };
+  console.log("Sending message:", messageData);
+  socketRef.current.emit("sendMessage", messageData);
+
+  // Reset trạng thái sau khi gửi
+  setNewMessage("");
+  setFile(null);
+  setAudioBlob(null);
+  setAudioPreviewUrl(null);
+  setIsRecording(false);
+};
 
     const message = {
       conversationId: selectedConversation.conversationId,
@@ -1518,6 +1559,6 @@ className={`message ${
       <ToastContainer />
     </div>
   );
-}
+
 
 export default ChatWindow;
