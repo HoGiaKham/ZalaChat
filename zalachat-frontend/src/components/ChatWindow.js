@@ -105,6 +105,14 @@ function ChatWindow({
     return () => clearInterval(recordingTimerRef.current);
   }, [isRecording]);
 
+  useEffect(() => {
+  if (socketRef.current) {
+    console.log("Socket connected:", socketRef.current.connected);
+    socketRef.current.on("connect", () => console.log("Socket connected"));
+    socketRef.current.on("disconnect", () => console.log("Socket disconnected"));
+  }
+}, [socketRef]);
+
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
